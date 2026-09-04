@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Trajectory Workbench</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="library">
+      <header class="brand">
+        <span class="brand-mark">AT</span>
+        <div><strong>Trajectory Workbench</strong><small>local · read-only source</small></div>
+      </header>
+
+      <form id="import-form" class="import-form">
+        <label for="run-path">引用 MoH run</label>
+        <input id="run-path" aria-label="MoH run 绝对路径" placeholder="/absolute/path/to/run" required>
+        <input id="run-label" aria-label="显示名称" placeholder="显示名称（可选）">
+        <button type="submit">导入路径</button>
+        <p id="import-status" role="status"></p>
+      </form>
+
+      <div class="library-head">
+        <span>Runs</span>
+        <button id="refresh-runs" class="quiet-button" type="button" aria-label="刷新运行列表">刷新</button>
+      </div>
+      <nav id="run-list" class="run-list" aria-label="已导入运行"></nav>
+      <footer>源目录不会被复制或修改</footer>
+    </aside>
+
+    <main class="workspace">
+      <section id="empty-state" class="empty-state">
+        <div class="empty-mark">↗</div>
+        <h1>导入一个 MoH run</h1>
+        <p>粘贴 run 根目录的绝对路径。Workbench 只保存路径引用。</p>
+      </section>
+
+      <div id="run-view" class="run-view hidden">
+        <header class="run-header panel">
+          <div class="run-identity">
+            <span id="run-adapter" class="eyebrow"></span>
+            <h1 id="run-title"></h1>
+            <code id="run-source"></code>
+          </div>
+          <div id="runtime-chip" class="runtime-chip"></div>
+        </header>
+
+        <section id="metrics" class="metrics panel" aria-label="运行指标"></section>
+
+        <section class="timeline-panel panel">
+          <div class="panel-head">
+            <div><h2>精确事件时间线</h2><p>点击标记定位消息；只画 records 中真实存在的时间点</p></div>
+            <span id="timeline-duration" class="mono"></span>
+          </div>
+          <div class="timeline-scroll"><div id="timeline" class="timeline"></div></div>
+        </section>
+
+        <div class="work-grid">
+          <section class="transcript panel">
+            <div class="filters">
+              <div class="role-filters" aria-label="角色筛选">
+                <button type="button" data-role="assistant" aria-pressed="true">Assistant</button>
+                <button type="button" data-role="user" aria-pressed="true">User</button>
+                <button type="button" data-role="system" aria-pressed="false">System</button>
+                <button type="button" data-role="result" aria-pressed="true">Result</button>
+              </div>
+              <select id="tool-filter" aria-label="工具筛选"><option value="">全部工具</option></select>
+              <input id="message-search" type="search" aria-label="搜索轨迹" placeholder="搜索消息、工具、命令或结果">
+            </div>
+            <div class="message-meta"><span id="message-count"></span><span id="filter-status"></span></div>
+            <div id="messages" class="messages"></div>
+            <div class="pager">
+              <button id="previous-page" type="button">上一页</button>
+              <span id="page-status"></span>
+              <button id="next-page" type="button">下一页</button>
+            </div>
+          </section>
+
+          <aside class="inspector">
+            <section class="panel inspector-card">
+              <div class="panel-head"><div><h2>终止链路</h2><p>生成成功不等于 Runtime 已交付</p></div></div>
+              <div id="terminal-flow" class="terminal-flow"></div>
+            </section>
+
+            <section class="panel inspector-card">
+              <div class="panel-head"><div><h2>工具调用</h2><p id="tool-summary"></p></div></div>
+              <div id="tool-bars" class="tool-bars"></div>
+            </section>
+
+            <section class="panel inspector-card">
+              <div class="panel-head"><div><h2>artifact.html</h2><p>按内容 SHA 去重</p></div></div>
+              <div id="artifact-facts" class="artifact-facts"></div>
+              <svg id="artifact-chart" class="artifact-chart" viewBox="0 0 360 66" preserveAspectRatio="none" aria-label="artifact 大小变化"></svg>
+              <div id="artifact-states" class="artifact-states"></div>
+            </section>
+
+            <section class="panel inspector-card">
+              <div class="panel-head"><div><h2>Slides Workbench</h2><p>观察证据与对应 artifact SHA</p></div></div>
+              <div id="workbench-list" class="workbench-list"></div>
+            </section>
+          </aside>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="image-modal" class="image-modal hidden" role="dialog" aria-modal="true" aria-label="Contact sheet 大图">
+    <button type="button" aria-label="关闭图片">×</button>
+    <img alt="">
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
+
