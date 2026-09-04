@@ -242,11 +242,17 @@ function renderToolFilter() {
   elements.toolFilter.value = state.tool;
 }
 
+function activeMessageRoles() {
+  const roles = new Set(state.roles);
+  if (state.tool) roles.add("tool");
+  return [...roles];
+}
+
 async function refreshMessages() {
   if (!state.activeId) return;
   elements.messages.replaceChildren(node("div", "empty-message", "读取消息…"));
   const payload = await getMessages(state.activeId, {
-    roles: [...state.roles],
+    roles: activeMessageRoles(),
     tool: state.tool,
     search: state.search,
     offset: state.offset,
@@ -543,4 +549,3 @@ refreshLibrary().catch((error) => {
   elements.importStatus.classList.add("error");
   elements.importStatus.textContent = error.message;
 });
-

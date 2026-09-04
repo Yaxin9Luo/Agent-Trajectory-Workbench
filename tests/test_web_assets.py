@@ -30,7 +30,12 @@ class WebAssetsTest(unittest.TestCase):
         self.assertNotIn("innerHTML = message.text", app)
         self.assertIn(".textContent = message.text", app)
 
+    def test_selecting_a_tool_always_includes_tool_messages(self) -> None:
+        app = (WEB / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function activeMessageRoles()", app)
+        self.assertIn('if (state.tool) roles.add("tool")', app)
+
 
 if __name__ == "__main__":
     unittest.main()
-
