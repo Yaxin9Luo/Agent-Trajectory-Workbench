@@ -14,7 +14,9 @@ def write_jsonl(path: Path, rows: list[object]) -> None:
     path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
 
-def make_moh_run(root: Path) -> Path:
+def make_moh_run(
+    root: Path, *, extra_tool_names: tuple[str, ...] = ()
+) -> Path:
     records = root / "attempts" / "001" / "records"
     workspace = root / "attempts" / "001" / "workspace"
     workspace.mkdir(parents=True)
@@ -31,7 +33,17 @@ def make_moh_run(root: Path) -> Path:
         "timings_ms": {"total": 1234},
     }
     trajectory = [
-        {"type": "system", "subtype": "init", "model": "kimi-k3"},
+        {
+            "type": "system",
+            "subtype": "init",
+            "model": "kimi-k3",
+            "tools": [
+                "Task",
+                "Bash",
+                "WebSearch",
+                "mcp__slides_workbench__slides_workbench",
+            ],
+        },
         {"type": "system", "subtype": "thinking_tokens", "count": 8},
         {"type": "assistant", "message": {"content": [{"type": "text", "text": "Inspect files"}]}},
         {
@@ -73,8 +85,41 @@ def make_moh_run(root: Path) -> Path:
                 ]
             },
         },
-        {"type": "result", "subtype": "success", "total_cost_usd": 1.25, "result": "done"},
     ]
+    for tool_index, extra_tool_name in enumerate(extra_tool_names, start=1):
+        tool_id = f"future-{tool_index}"
+        trajectory.extend(
+            [
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": tool_id,
+                                "name": extra_tool_name,
+                                "input": {"prompt": "draw a diagram"},
+                            }
+                        ]
+                    },
+                },
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_id,
+                                "content": "future tool result",
+                            }
+                        ]
+                    },
+                },
+            ]
+        )
+    trajectory.append(
+        {"type": "result", "subtype": "success", "total_cost_usd": 1.25, "result": "done"}
+    )
     write_jsonl(records / "trajectory.jsonl", trajectory)
     write_jsonl(
         records / "trajectory_index.jsonl",
@@ -123,5 +168,21 @@ def make_moh_run(root: Path) -> Path:
             }
         ],
     )
+    write_json(
+        root / "resolved_run_manifest.json",
+        {
+            "agent": {
+                "adapter_facts": {"native_tool_surface": ["default"]},
+                "capability_bindings": {
+                    "bindings": [
+                        {"capability_id": "slides_workbench"},
+                        {"capability_id": "web_search"},
+                    ]
+                },
+            },
+            "execution_profile": {
+                "agent": {"allowed_tools": ["slides_workbench", "web_search"]}
+            },
+        },
+    )
     return root
-

@@ -102,7 +102,7 @@ class WorkbenchService:
         return entry, normalized
 
     def _fingerprint(self, root: Path) -> tuple[tuple[str, int, int], ...]:
-        candidates = [root / "events.jsonl"]
+        candidates = [root / "events.jsonl", root / "resolved_run_manifest.json"]
         candidates.extend((root / "attempts").glob("*/records/*.json"))
         candidates.extend((root / "attempts").glob("*/records/*.jsonl"))
         rows: list[tuple[str, int, int]] = []
@@ -112,4 +112,3 @@ class WorkbenchService:
             stat = path.stat()
             rows.append((str(path.relative_to(root)), stat.st_mtime_ns, stat.st_size))
         return tuple(rows)
-

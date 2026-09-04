@@ -236,8 +236,11 @@ async function focusMessage(messageId, mark) {
 
 function renderToolFilter() {
   elements.toolFilter.replaceChildren(new Option("全部工具", ""));
-  Object.keys(state.summary.metrics.tool_counts).sort().forEach((name) => {
-    elements.toolFilter.append(new Option(name, name));
+  state.summary.tool_catalog.forEach((tool) => {
+    const status = tool.observed
+      ? tool.call_count + " 次调用"
+      : (tool.available_in_session ? "session 可用 · 0 次调用" : "manifest 声明 · 0 次调用");
+    elements.toolFilter.append(new Option(tool.name + " · " + status, tool.name));
   });
   elements.toolFilter.value = state.tool;
 }
@@ -303,10 +306,20 @@ function renderMessages(messages) {
 function renderTool(tool) {
   const box = node("div", "tool-box");
   const head = node("div", "tool-head");
-  head.append(node("strong", "", tool.name), node("span", "", tool.id));
+  const identity = node("div", "tool-identity");
+  identity.append(node("strong", "", tool.name));
+  if (tool.raw_name && tool.raw_name !== tool.name) {
+    identity.append(node("code", "tool-raw-name", tool.raw_name));
+  }
+  const resultState = tool.result
+    ? (tool.result.is_error ? "error" : "result")
+    : "no result";
+  const status = node("div", "tool-call-status " + (tool.result?.is_error ? "error" : ""));
+  status.append(node("span", "", resultState), node("code", "", tool.id));
+  head.append(identity, status);
   box.append(head);
   box.append(detailBlock("Input", JSON.stringify(tool.input, null, 2)));
-  box.append(detailBlock("Result", tool.result ? tool.result.text : "No matching tool_result record"));
+  box.append(detailBlock(tool.result?.is_error ? "Result · error" : "Result", tool.result ? tool.result.text : "No matching tool_result record"));
   return box;
 }
 
@@ -339,18 +352,34 @@ function terminalNode(title, detail, stateName) {
 }
 
 function renderToolBars() {
-  const entries = Object.entries(state.summary.metrics.tool_counts).sort((a, b) => b[1] - a[1]);
-  const max = entries.length ? entries[0][1] : 1;
-  elements.toolSummary.textContent = state.summary.metrics.tool_calls + " calls · " + entries.length + " kinds";
+  const entries = [...state.summary.tool_catalog].sort((a, b) => b.call_count - a.call_count || a.name.localeCompare(b.name));
+  const max = entries.length ? Math.max(1, entries[0].call_count) : 1;
+  const observed = entries.filter((tool) => tool.observed).length;
+  const available = entries.filter((tool) => tool.available_in_session).length;
+  const declared = entries.filter((tool) => tool.declared).length;
+  const surfaces = state.summary.native_tool_surfaces.length
+    ? " · native surface: " + state.summary.native_tool_surfaces.join(", ") + "（未枚举）"
+    : "";
+  elements.toolSummary.textContent = available + " 个 session 可用 · " + observed + " 个实调 · " + declared + " 个 manifest 声明" + surfaces;
   elements.toolBars.replaceChildren();
-  entries.forEach(([name, count]) => {
+  entries.forEach((tool) => {
     const row = node("div", "tool-bar");
-    row.append(node("span", "", name));
+    const label = node("div", "tool-label");
+    label.append(node("strong", "", tool.name));
+    const states = [];
+    if (tool.observed) states.push("轨迹实调 × " + tool.call_count);
+    if (tool.available_in_session) states.push("session 可用");
+    if (tool.declared) states.push("manifest 已声明");
+    const stateText = states.join(" · ") + (tool.observed ? "" : " · 未调用");
+    label.append(node("span", "", stateText));
+    const rawNames = tool.raw_names.filter((name) => name !== tool.name);
+    if (rawNames.length) label.append(node("code", "", rawNames.join(" · ")));
+    row.append(label);
     const track = node("div", "tool-track");
     const fill = node("div", "tool-fill");
-    fill.style.width = count / max * 100 + "%";
+    fill.style.width = tool.call_count / max * 100 + "%";
     track.append(fill);
-    row.append(track, node("span", "tool-value", String(count)));
+    row.append(track, node("span", "tool-value", String(tool.call_count)));
     elements.toolBars.append(row);
   });
 }

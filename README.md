@@ -44,8 +44,9 @@ unavailable.
 
 - MoH `moh-v1` run validation and normalization;
 - exact message, tool, artifact, Workbench, and Runtime event lanes;
+- tool inventory combining the session's advertised surface, manifest declarations, and observed calls;
 - searchable and filterable semantic transcript;
-- paired tool inputs and results;
+- generic paired tool inputs, results, and error state for arbitrary tool names;
 - deduplicated `artifact.html` state history;
 - Slides Workbench contact-sheet inspection;
 - explicit Agent/process/artifact/Runtime terminal status;

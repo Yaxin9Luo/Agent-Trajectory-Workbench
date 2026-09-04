@@ -48,6 +48,8 @@ class MohV1Adapter:
         process = self._read_json(records / "process.json")
         terminal = self._read_json(records / "attempt_terminal.json")
         run_events = self._read_jsonl(root / "events.jsonl")
+        manifest_path = root / "resolved_run_manifest.json"
+        manifest = self._read_json(manifest_path) if manifest_path.is_file() else {}
 
         offsets = {
             int(item["line_number"]): int(item.get("received_offset_ms", 0))
@@ -131,6 +133,9 @@ class MohV1Adapter:
         counts: dict[str, int] = {}
         for tool in tools:
             counts[tool["name"]] = counts.get(tool["name"], 0) + 1
+        declared_tools, native_tool_surfaces = self._tool_declarations(manifest)
+        session_tools = self._session_tools(trace)
+        tool_catalog = self._tool_catalog(tools, session_tools, declared_tools)
 
         return NormalizedRun(
             adapter_id=self.adapter_id,
@@ -153,6 +158,8 @@ class MohV1Adapter:
             timeline=timeline,
             messages=messages,
             tools=tools,
+            tool_catalog=tool_catalog,
+            native_tool_surfaces=native_tool_surfaces,
             artifact_states=artifact_states,
             workbench=workbench,
             runtime=runtime,
@@ -330,6 +337,136 @@ class MohV1Adapter:
             return "Slides Workbench"
         return name
 
+    def _session_tools(self, trace: list[dict[str, Any]]) -> list[str]:
+        tools: list[str] = []
+        for row in trace:
+            if row.get("type") != "system" or row.get("subtype") != "init":
+                continue
+            for raw_name in row.get("tools", []):
+                if isinstance(raw_name, str) and raw_name:
+                    tools.append(raw_name)
+        return tools
+
+    def _tool_identity(self, name: str) -> str:
+        return "".join(character for character in name.casefold() if character.isalnum())
+
+    def _tool_declarations(
+        self, manifest: dict[str, Any]
+    ) -> tuple[dict[str, dict[str, set[str]]], list[str]]:
+        declared: dict[str, dict[str, set[str]]] = {}
+
+        def add(raw_name: Any, source: str) -> None:
+            if not isinstance(raw_name, str) or not raw_name:
+                return
+            name = self._tool_name(raw_name)
+            entry = declared.setdefault(name, {"raw_names": set(), "sources": set()})
+            entry["raw_names"].add(raw_name)
+            entry["sources"].add(source)
+
+        for source, agent in (
+            (
+                "execution_profile.agent.allowed_tools",
+                (manifest.get("execution_profile") or {}).get("agent", {}),
+            ),
+            (
+                "experiment_config.agent.allowed_tools",
+                (manifest.get("experiment_config") or {}).get("agent", {}),
+            ),
+        ):
+            if not isinstance(agent, dict):
+                continue
+            for raw_name in agent.get("allowed_tools", []):
+                add(raw_name, source)
+
+        agent = manifest.get("agent")
+        if isinstance(agent, dict):
+            bindings = agent.get("capability_bindings", {}).get("bindings", [])
+            if isinstance(bindings, list):
+                for binding in bindings:
+                    if isinstance(binding, dict):
+                        add(binding.get("capability_id"), "agent.capability_bindings")
+
+        surfaces: set[str] = set()
+        adapter_facts = agent.get("adapter_facts", {}) if isinstance(agent, dict) else {}
+        identity = (manifest.get("execution_profile") or {}).get("agent_identity", {})
+        identity_facts = identity.get("adapter_facts", {}) if isinstance(identity, dict) else {}
+        for facts in (adapter_facts, identity_facts):
+            if not isinstance(facts, dict):
+                continue
+            for surface in facts.get("native_tool_surface", []):
+                if isinstance(surface, str) and surface:
+                    surfaces.add(surface)
+        return declared, sorted(surfaces, key=str.casefold)
+
+    def _tool_catalog(
+        self,
+        tools: list[dict[str, Any]],
+        session_tools: list[str],
+        declared_tools: dict[str, dict[str, set[str]]],
+    ) -> list[dict[str, Any]]:
+        catalog: dict[str, dict[str, Any]] = {}
+
+        def add(
+            raw_name: str,
+            source: str,
+            *,
+            call: bool = False,
+            available: bool = False,
+            declared: bool = False,
+            allow_alias: bool = False,
+        ) -> None:
+            name = self._tool_name(raw_name)
+            catalog_name = name
+            if catalog_name not in catalog and allow_alias:
+                identity = self._tool_identity(name)
+                aliases = [
+                    candidate
+                    for candidate in catalog
+                    if self._tool_identity(candidate) == identity
+                ]
+                if len(aliases) == 1:
+                    catalog_name = aliases[0]
+            entry = catalog.setdefault(
+                catalog_name,
+                {
+                    "name": catalog_name,
+                    "call_count": 0,
+                    "observed": False,
+                    "available_in_session": False,
+                    "declared": False,
+                    "raw_names": set(),
+                    "sources": set(),
+                },
+            )
+            entry["call_count"] += int(call)
+            entry["observed"] = entry["observed"] or call
+            entry["available_in_session"] = entry["available_in_session"] or available
+            entry["declared"] = entry["declared"] or declared
+            entry["raw_names"].add(raw_name)
+            entry["sources"].add(source)
+
+        for tool in tools:
+            add(tool["raw_name"], "trajectory", call=True)
+
+        for raw_name in session_tools:
+            add(raw_name, "system.init.tools", available=True, allow_alias=True)
+
+        for name, declaration in declared_tools.items():
+            for raw_name in declaration["raw_names"]:
+                for source in declaration["sources"]:
+                    add(raw_name, source, declared=True, allow_alias=True)
+
+        normalized: list[dict[str, Any]] = []
+        for entry in catalog.values():
+            normalized.append(
+                {
+                    **entry,
+                    "raw_names": sorted(entry["raw_names"], key=str.casefold),
+                    "sources": sorted(entry["sources"], key=str.casefold),
+                }
+            )
+        return sorted(normalized, key=lambda entry: entry["name"].casefold())
+
     def _text_content(self, content: Any) -> str:
         if isinstance(content, str):
             return content
@@ -358,4 +495,3 @@ class MohV1Adapter:
                     raise ValueError(f"Expected object at {path}:{line_number}")
                 rows.append(value)
         return rows
-

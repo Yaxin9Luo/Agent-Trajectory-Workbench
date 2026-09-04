@@ -35,6 +35,8 @@ class NormalizedRun:
     timeline: list[dict[str, Any]]
     messages: list[dict[str, Any]]
     tools: list[dict[str, Any]]
+    tool_catalog: list[dict[str, Any]]
+    native_tool_surfaces: list[str]
     artifact_states: list[dict[str, Any]]
     workbench: list[dict[str, Any]]
     runtime: dict[str, Any]
@@ -49,8 +51,9 @@ class NormalizedRun:
             "metrics": self.metrics,
             "timeline": self.timeline,
             "tools": self.tools,
+            "tool_catalog": self.tool_catalog,
+            "native_tool_surfaces": self.native_tool_surfaces,
             "artifact_states": self.artifact_states,
             "workbench": self.workbench,
             "runtime": self.runtime,
         }
-
