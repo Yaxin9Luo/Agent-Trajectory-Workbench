@@ -1,14 +1,59 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from trajectory_workbench.adapters.moh_v1 import MohV1Adapter
-from tests.fixtures import make_moh_run
+from tests.fixtures import make_moh_run, write_json, write_jsonl
 
 
 class MohV1AdapterTest(unittest.TestCase):
+    def test_runtime_classification_uses_finalization_and_does_not_invent_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run = make_moh_run(Path(temp) / "run")
+            write_jsonl(run / "events.jsonl", [])
+            self.assertEqual(MohV1Adapter().load(run).runtime["classification"], "unknown")
+            write_jsonl(run / "events.jsonl", [{
+                "event_type": "run.finalized", "payload": {"classification": None},
+            }])
+            self.assertEqual(MohV1Adapter().load(run).runtime["classification"], "completed")
+            write_jsonl(run / "events.jsonl", [{
+                "event_type": "run.finalized", "payload": {"classification": "cancelled"},
+            }])
+            self.assertEqual(MohV1Adapter().load(run).runtime["classification"], "cancelled")
+
+    def test_moh_image_tool_merges_manifest_session_and_observed_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run = make_moh_run(Path(temp) / "run", extra_tool_names=(
+                "mcp__generate_image__generate_image", "mcp__future_tools__generate_image",
+            ))
+            manifest_path = run / "resolved_run_manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["execution_profile"]["agent"]["allowed_tools"].append("generate_image")
+            write_json(manifest_path, manifest)
+            trace_path = run / "attempts/001/records/trajectory.jsonl"
+            trace = [json.loads(line) for line in trace_path.read_text().splitlines()]
+            trace[0]["tools"].append("mcp__generate_image__generate_image")
+            write_jsonl(trace_path, trace)
+
+            normalized = MohV1Adapter().load(run)
+
+        catalog = {item["name"]: item for item in normalized.tool_catalog}
+        image = catalog["generate_image"]
+        self.assertEqual(image["call_count"], 1)
+        self.assertTrue(image["declared"])
+        self.assertTrue(image["available_in_session"])
+        self.assertEqual(set(image["raw_names"]), {
+            "generate_image", "mcp__generate_image__generate_image",
+        })
+        self.assertNotIn("mcp__generate_image__generate_image", catalog)
+        self.assertEqual(catalog["mcp__future_tools__generate_image"]["call_count"], 1)
+        tool = next(tool for tool in normalized.tools if tool["name"] == "generate_image")
+        self.assertEqual(tool["raw_name"], "mcp__generate_image__generate_image")
+        self.assertEqual(tool["result"]["text"], "future tool result")
+
     def test_probe_reports_missing_contract_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             result = MohV1Adapter().probe(Path(temp))

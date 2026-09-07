@@ -53,12 +53,20 @@ unavailable.
 - paginated messages and in-memory source-fingerprint cache.
 
 The UI does not invent LLM start times or call durations that are absent from MoH records.
+Missing tool durations display as `—`; recorded zero remains `0ms`. Terminal cards distinguish
+process completion, timeout, recorded artifact history, and Runtime finalization. Missing terminal
+evidence stays unknown. Workbench failure cards expose the recorded error code and message.
+The exact MoH alias `mcp__generate_image__generate_image` joins `generate_image` in the tool
+inventory while retaining its raw name; unrelated MCP servers remain distinct.
 
 ## Tests
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
+node --test tests/test_presentation.mjs
 ```
+
+Presentation tests use Node.js 18 or newer; the running application still needs only Python.
 
 Run an opt-in smoke against real MoH directories:
 

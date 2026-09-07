@@ -320,19 +320,26 @@ class MohV1Adapter:
             None,
         )
         payload = failure.get("payload", {}) if isinstance(failure, dict) else {}
+        finalized = next(
+            (item for item in reversed(run_events) if item.get("event_type") == "run.finalized"),
+            None,
+        )
+        classification = payload.get("classification", terminal.get("classification")) or "unknown"
+        if finalized is not None and "classification" in finalized.get("payload", {}):
+            classification = finalized["payload"]["classification"] or "completed"
         return {
             "process_terminal_reason": process.get(
                 "terminal_reason", process.get("process_terminal_reason")
             ),
             "exit_code": process.get("exit_code"),
             "agent_result_status": terminal.get("agent_result_status"),
-            "classification": payload.get(
-                "classification", terminal.get("classification", "completed")
-            ),
+            "classification": classification,
             "failure_message": payload.get("exception_message"),
         }
 
     def _tool_name(self, name: str) -> str:
+        if name == "mcp__generate_image__generate_image":
+            return "generate_image"
         if name == "slides_workbench" or name.endswith("__slides_workbench"):
             return "Slides Workbench"
         return name

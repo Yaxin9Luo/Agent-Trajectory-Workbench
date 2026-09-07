@@ -1,3 +1,4 @@
+import { formatDuration, formatBytes, shortSha, terminalCards } from "./presentation.mjs";
 import { getMessages, getRun, importRun, listRuns, runFileUrl } from "./api.js";
 
 const state = {
@@ -58,24 +59,6 @@ function formatTime(milliseconds) {
   const minutes = Math.floor(total / 60000);
   const seconds = Math.floor((total % 60000) / 1000);
   return minutes + ":" + String(seconds).padStart(2, "0");
-}
-
-function formatDuration(milliseconds) {
-  const total = Number(milliseconds || 0);
-  if (total < 1000) return Math.round(total) + "ms";
-  if (total < 60000) return (total / 1000).toFixed(total < 10000 ? 1 : 0) + "s";
-  return Math.floor(total / 60000) + "m " + Math.round((total % 60000) / 1000) + "s";
-}
-
-function formatBytes(bytes) {
-  const value = Number(bytes || 0);
-  if (value < 1024) return value + " B";
-  if (value < 1024 * 1024) return (value / 1024).toFixed(1) + " KB";
-  return (value / 1024 / 1024).toFixed(1) + " MB";
-}
-
-function shortSha(value) {
-  return value ? String(value).slice(0, 10) + "…" : "—";
 }
 
 function metric(label, value, note, alert = false) {
@@ -333,15 +316,10 @@ function detailBlock(label, content) {
 }
 
 function renderTerminal() {
-  const run = state.summary;
-  const runtime = run.runtime;
-  const finalState = run.artifact_states.at(-1) || {};
+  const cards = terminalCards(state.summary).map((card) => terminalNode(card.title, card.detail, card.state));
   elements.terminalFlow.replaceChildren(
-    terminalNode("Agent completed", "exit " + String(runtime.exit_code) + " · " + formatDuration(run.metrics.max_offset_ms), "ok"),
-    node("div", "terminal-arrow", "→"),
-    terminalNode("artifact exists", formatBytes(finalState.size_bytes) + " · " + shortSha(finalState.artifact_sha256), "warn"),
-    node("div", "terminal-arrow", "→"),
-    terminalNode("Runtime " + runtime.classification, runtime.failure_message || runtime.agent_result_status || "—", "bad")
+    cards[0], node("div", "terminal-arrow", "→"),
+    cards[1], node("div", "terminal-arrow", "→"), cards[2]
   );
 }
 
@@ -457,6 +435,9 @@ function renderWorkbench() {
     const head = node("div", "workbench-head");
     head.append(node("strong", "", "Workbench #" + (index + 1)), node("span", "", formatTime(call.offset_ms) + " · " + (observation.status || "unparsed")));
     card.append(head);
+    if (observation.error_code || observation.message) {
+      card.append(node("div", "workbench-raw", [observation.error_code, observation.message].filter(Boolean).join(" · ")));
+    }
     if (call.contact_sheet_relative_path) {
       const image = node("img");
       image.loading = "lazy";
