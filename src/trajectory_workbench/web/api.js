@@ -46,6 +46,23 @@ export function getMessages(runId, filters) {
   return request("/runs/" + encodeURIComponent(runId) + "/messages?" + query);
 }
 
+export function getAnalysis(runId) {
+  return request("/runs/" + encodeURIComponent(runId) + "/analysis");
+}
+
+export function getErrors(runId) {
+  return request("/runs/" + encodeURIComponent(runId) + "/errors");
+}
+
+export function getArtifactDiffs(runId) {
+  return request("/runs/" + encodeURIComponent(runId) + "/artifact-diffs");
+}
+
+export function compareRuns(runIds) {
+  const query = runIds.map((id) => "id=" + encodeURIComponent(id)).join("&");
+  return request("/runs/compare?" + query);
+}
+
 export function runFileUrl(runId, relativePath) {
   const encodedPath = relativePath.split("/").map(encodeURIComponent).join("/");
   return API_ROOT + "/runs/" + encodeURIComponent(runId) + "/files/" + encodedPath;

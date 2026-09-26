@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from trajectory_workbench.adapters.moh_v1 import MohV1Adapter
+from trajectory_workbench.analysis import TrajectoryAnalyzer
+from trajectory_workbench.insights import artifact_diff, compare_runs, error_aggregation
 from trajectory_workbench.models import NormalizedRun
 from trajectory_workbench.registry import Registry
 
@@ -14,10 +16,13 @@ class WorkbenchService:
         self,
         registry: Registry,
         adapter: MohV1Adapter | None = None,
+        analyzer: TrajectoryAnalyzer | None = None,
     ) -> None:
         self.registry = registry
         self.adapter = adapter or MohV1Adapter()
+        self.analyzer = analyzer or TrajectoryAnalyzer()
         self._cache: dict[str, tuple[tuple[tuple[str, int, int], ...], NormalizedRun]] = {}
+        self._analysis_cache: dict[str, dict[str, Any]] = {}
 
     def import_run(self, source_path: str, label: str | None) -> dict[str, Any]:
         supplied = Path(source_path).expanduser()
@@ -74,6 +79,28 @@ class WorkbenchService:
             "limit": bounded_limit,
             "items": selected[bounded_offset : bounded_offset + bounded_limit],
         }
+
+    def analyze_run(self, run_id: str) -> dict[str, Any]:
+        entry, normalized = self._load(run_id)
+        fingerprint = self._fingerprint(Path(entry.path))
+        cache_key = f"{entry.id}:{hash(fingerprint)}"
+        if cache_key in self._analysis_cache:
+            return self._analysis_cache[cache_key]
+        result = self.analyzer.analyze_run(normalized)
+        self._analysis_cache[cache_key] = result
+        return result
+
+    def get_errors(self, run_id: str) -> dict[str, Any]:
+        _, normalized = self._load(run_id)
+        return error_aggregation(normalized)
+
+    def get_artifact_diffs(self, run_id: str) -> dict[str, Any]:
+        entry, normalized = self._load(run_id)
+        return artifact_diff(normalized, Path(entry.path))
+
+    def compare(self, run_ids: list[str]) -> dict[str, Any]:
+        normalized = [self._load(run_id)[1] for run_id in run_ids]
+        return compare_runs(normalized)
 
     def resolve_file(self, run_id: str, relative_path: str) -> Path:
         entry = self.registry.get(run_id)

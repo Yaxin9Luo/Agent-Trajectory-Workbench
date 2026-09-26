@@ -7,11 +7,11 @@ records.
 
 ## Start
 
-Requires Python 3.11 or newer. There are no runtime dependencies.
+Requires Python 3.11 or newer. Uses `typesafe-sdk` for Jev semantic analysis. Install with `uv sync` or `pip install -e .`.
 
 ```bash
 cd /Users/yaxinluo/Desktop/Agent-Trajectory-Workbench
-./trajectory-workbench serve
+uv run ./trajectory-workbench serve
 ```
 
 Open [http://127.0.0.1:8877/](http://127.0.0.1:8877/).
@@ -47,10 +47,14 @@ unavailable.
 - tool inventory combining the session's advertised surface, manifest declarations, and observed calls;
 - searchable and filterable semantic transcript;
 - generic paired tool inputs, results, and error state for arbitrary tool names;
-- deduplicated `artifact.html` state history;
+- deduplicated `artifact.html` state history with content diffs;
 - Slides Workbench contact-sheet inspection;
 - explicit Agent/process/artifact/Runtime terminal status;
-- paginated messages and in-memory source-fingerprint cache.
+- paginated messages and in-memory source-fingerprint cache;
+- **Jev semantic analysis** — TypeOne model scores run health, error severity, and failure categories with calibrated confidence;
+- **error/retry aggregation** — groups tool failures by name and tracks recovery chains;
+- **artifact content diff** — line-level added/removed counts between consecutive artifact states;
+- **cross-run comparison** — side-by-side metrics and tool-usage diff between any two runs.
 
 The UI does not invent LLM start times or call durations that are absent from MoH records.
 Missing tool durations display as `—`; recorded zero remains `0ms`. Terminal cards distinguish

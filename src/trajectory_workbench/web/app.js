@@ -1,10 +1,15 @@
 import { formatDuration, formatBytes, shortSha, terminalCards } from "./presentation.mjs";
-import { getMessages, getRun, importRun, listRuns, runFileUrl } from "./api.js";
+import { compareRuns, getAnalysis, getArtifactDiffs, getErrors, getMessages, getRun, importRun, listRuns, runFileUrl } from "./api.js";
 
 const state = {
   runs: [],
   activeId: null,
   summary: null,
+  analysis: null,
+  errors: null,
+  artifactDiffs: null,
+  compareIds: [],
+  compareResult: null,
   roles: new Set(["assistant", "tool", "user", "result"]),
   tool: "",
   search: "",
@@ -44,6 +49,17 @@ const elements = {
   artifactChart: document.querySelector("#artifact-chart"),
   artifactStates: document.querySelector("#artifact-states"),
   workbenchList: document.querySelector("#workbench-list"),
+  analysisList: document.querySelector("#analysis-list"),
+  analysisStatus: document.querySelector("#analysis-status"),
+  errorsList: document.querySelector("#errors-list"),
+  errorsStatus: document.querySelector("#errors-status"),
+  diffList: document.querySelector("#diff-list"),
+  diffStatus: document.querySelector("#diff-status"),
+  compareList: document.querySelector("#compare-list"),
+  compareStatus: document.querySelector("#compare-status"),
+  compareA: document.querySelector("#compare-a"),
+  compareB: document.querySelector("#compare-b"),
+  compareGo: document.querySelector("#compare-go"),
   imageModal: document.querySelector("#image-modal"),
 };
 
@@ -102,6 +118,10 @@ function renderLibrary() {
 function showEmpty() {
   state.activeId = null;
   state.summary = null;
+  state.analysis = null;
+  state.errors = null;
+  state.artifactDiffs = null;
+  state.compareResult = null;
   elements.empty.classList.remove("hidden");
   elements.runView.classList.add("hidden");
   renderLibrary();
@@ -109,7 +129,13 @@ function showEmpty() {
 
 async function selectRun(runId) {
   state.activeId = runId;
+  state.analysis = null;
+  state.errors = null;
+  state.artifactDiffs = null;
+  state.compareResult = null;
   state.offset = 0;
+  elements.errorsStatus.textContent = "尚未加载";
+  elements.diffStatus.textContent = "尚未加载";
   renderLibrary();
   elements.empty.classList.add("hidden");
   elements.runView.classList.remove("hidden");
@@ -147,6 +173,10 @@ function renderSummary() {
   renderToolBars();
   renderArtifacts();
   renderWorkbench();
+  renderAnalysis().catch(() => {});
+  renderErrors().catch(() => {});
+  renderArtifactDiffs().catch(() => {});
+  renderCompare().catch(() => {});
 }
 
 function renderTimeline() {
@@ -510,6 +540,263 @@ function workbenchFact(value, label) {
   return item;
 }
 
+const ANALYSIS_LABELS = {
+  none: "无错误",
+  recoverable: "可恢复",
+  persistent: "持续未恢复",
+  fatal: "致命",
+  validation: "输入校验",
+  tool_misuse: "工具误用",
+  environment: "环境缺失",
+  logic: "逻辑缺陷",
+  external: "外部服务",
+};
+
+function choiceLabel(choice) {
+  return ANALYSIS_LABELS[choice] || choice;
+}
+
+function percent(value) {
+  return Math.round((Number(value) || 0) * 100) + "%";
+}
+
+function bar(value, max) {
+  const track = node("div", "bar");
+  const fill = node("div", "bar-fill");
+  const ratio = max > 0 ? Math.min(1, Math.max(0, (Number(value) || 0) / max)) : 0;
+  fill.style.width = ratio * 100 + "%";
+  track.append(fill);
+  return track;
+}
+
+function analysisRow(label, value) {
+  const row = node("div", "analysis-row");
+  row.append(node("span", "analysis-label", label), value);
+  return row;
+}
+
+async function renderAnalysis() {
+  const runId = state.activeId;
+  if (!runId) return;
+  elements.analysisStatus.textContent = "分析中…";
+  try {
+    const result = await getAnalysis(runId);
+    if (runId !== state.activeId) return;
+    state.analysis = result;
+    renderAnalysisResult(result);
+  } catch (error) {
+    elements.analysisStatus.textContent = "分析失败：" + error.message;
+  }
+}
+
+function renderAnalysisResult(result) {
+  const run = result.run || {};
+  const health = run.health_score || null;
+  const needsHuman = run.needs_human || null;
+  const severity = run.error_severity || null;
+  const failure = (result.errors || {}).failure_category || null;
+  const toolErrorCount = Number(result.tool_error_count || 0);
+  elements.analysisStatus.textContent = "Jev · TypeOne 结构化判断";
+  elements.analysisList.replaceChildren();
+
+  if (health && health.score !== null && health.score !== undefined) {
+    const value = node("div", "analysis-value");
+    value.append(node("strong", "", Number(health.score).toFixed(1) + " / 10"));
+    value.append(bar(health.confidence == null ? 0 : health.confidence, 1));
+    value.append(node("span", "analysis-note", "置信度 " + percent(health.confidence)));
+    elements.analysisList.append(analysisRow("健康分", value));
+  }
+  if (needsHuman && needsHuman.probability !== null && needsHuman.probability !== undefined) {
+    const probability = Number(needsHuman.probability) || 0;
+    const value = node("div", "analysis-value");
+    value.append(node("strong", "", percent(probability)));
+    value.append(bar(probability, 1));
+    value.append(node("span", "analysis-note", probability >= 0.5 ? "倾向需要人工介入" : "倾向无需人工介入"));
+    elements.analysisList.append(analysisRow("需要人工介入", value));
+  }
+  if (severity && severity.choice) {
+    const value = node("div", "analysis-value");
+    value.append(node("strong", "", choiceLabel(severity.choice)));
+    value.append(bar(severity.confidence == null ? 0 : severity.confidence, 1));
+    value.append(node("span", "analysis-note", "置信度 " + percent(severity.confidence)));
+    elements.analysisList.append(analysisRow("最严重错误", value));
+  }
+  if (toolErrorCount > 0 && failure && failure.choice) {
+    const value = node("div", "analysis-value");
+    value.append(node("strong", "", choiceLabel(failure.choice)));
+    value.append(bar(failure.confidence == null ? 0 : failure.confidence, 1));
+    value.append(node("span", "analysis-note", "置信度 " + percent(failure.confidence) + " · " + toolErrorCount + " 个工具错误"));
+    elements.analysisList.append(analysisRow("失败类别", value));
+  }
+  if (!elements.analysisList.children.length) {
+    elements.analysisList.append(node("div", "empty-message", "该 run 暂无可用的语义分析结果"));
+  }
+}
+
+async function renderErrors() {
+  const runId = state.activeId;
+  if (!runId) return;
+  elements.errorsStatus.textContent = "读取中…";
+  try {
+    const result = await getErrors(runId);
+    if (runId !== state.activeId) return;
+    state.errors = result;
+    renderErrorsResult(result);
+  } catch (error) {
+    elements.errorsStatus.textContent = "读取失败：" + error.message;
+  }
+}
+
+function renderErrorsResult(result) {
+  elements.errorsList.replaceChildren();
+  const rate = result.recovery_rate == null ? "—" : percent(result.recovery_rate);
+  elements.errorsStatus.textContent =
+    result.error_count + " 个错误 · 重试 " + result.retry_count + " 次 · 恢复率 " + rate;
+  if (!result.errors.length) {
+    elements.errorsList.append(node("div", "empty-message", "这次运行没有工具错误"));
+    return;
+  }
+  const byName = node("div", "errors-byname");
+  Object.entries(result.by_name || {}).forEach(([name, count]) => {
+    const chip = node("span", "errors-chip");
+    chip.append(node("strong", "", name), node("span", "", "× " + count));
+    byName.append(chip);
+  });
+  elements.errorsList.append(byName);
+  result.errors.forEach((item, index) => {
+    const row = node("div", "errors-row");
+    const head = node("div", "errors-head");
+    head.append(node("strong", "", "#" + (index + 1) + " " + item.name));
+    head.append(node("span", "", formatTime(item.offset_ms)));
+    row.append(head);
+    const text = String(item.result_text || "").trim();
+    const snippet = text ? (text.length > 160 ? text.slice(0, 160) + "…" : text) : "（无结果文本）";
+    row.append(node("div", "errors-text", snippet));
+    const recovery = node("div", "errors-recovery " + (item.recovery ? "ok" : "bad"));
+    if (item.recovery) {
+      recovery.append(
+        node("span", "", "✓ 已恢复"),
+        node("code", "", item.recovery.tool_id),
+        node("span", "", "+" + formatTime(item.recovery.offset_ms - item.offset_ms) + " · 之后第 " + item.recovery.attempts_later + " 次调用")
+      );
+    } else {
+      recovery.append(node("span", "", "✗ 未恢复"));
+    }
+    row.append(recovery);
+    elements.errorsList.append(row);
+  });
+}
+
+async function renderArtifactDiffs() {
+  const runId = state.activeId;
+  if (!runId) return;
+  elements.diffStatus.textContent = "读取中…";
+  try {
+    const result = await getArtifactDiffs(runId);
+    if (runId !== state.activeId) return;
+    state.artifactDiffs = result;
+    renderDiffsResult(result);
+  } catch (error) {
+    elements.diffStatus.textContent = "读取失败：" + error.message;
+  }
+}
+
+function renderDiffsResult(result) {
+  elements.diffList.replaceChildren();
+  elements.diffStatus.textContent = result.state_count + " 个 artifact 状态";
+  if (!result.diffs.length) {
+    elements.diffList.append(node("div", "empty-message", "artifact.html 内容没有变化"));
+    return;
+  }
+  result.diffs.forEach((diff) => {
+    const row = node("div", "diff-row");
+    const head = node("div", "diff-head");
+    head.append(node("span", "", formatTime(diff.from_offset_ms) + " → " + formatTime(diff.to_offset_ms)));
+    head.append(node("code", "", diff.from_sha + " → " + diff.to_sha));
+    const delta = (diff.to_size || 0) - (diff.from_size || 0);
+    head.append(node("span", "diff-size " + (delta >= 0 ? "more" : "less"), (delta >= 0 ? "+" : "−") + formatBytes(Math.abs(delta))));
+    row.append(head);
+    if (diff.unavailable) {
+      row.append(node("div", "diff-unavailable", "内容不可读"));
+    } else {
+      row.append(node("div", "diff-lines", "+" + diff.added + " 行 / −" + diff.removed + " 行"));
+    }
+    elements.diffList.append(row);
+  });
+}
+
+async function renderCompare() {
+  const options = state.runs.filter((run) => run.available);
+  [elements.compareA, elements.compareB].forEach((select, index) => {
+    select.replaceChildren();
+    options.forEach((run) => {
+      const option = node("option", "", run.label);
+      option.value = run.id;
+      select.append(option);
+    });
+    if (options[index]) select.value = options[index].id;
+  });
+  elements.compareGo.disabled = options.length < 2;
+}
+
+function renderCompareResult(result) {
+  const comparison = result.comparison;
+  elements.compareList.replaceChildren();
+  if (!comparison) {
+    elements.compareStatus.textContent = "至少需要两个 run 才能对比";
+    return;
+  }
+  const ids = Object.keys(comparison.metrics);
+  elements.compareStatus.textContent = result.run_count + " 个 run 并排对比 · 绿色为更优";
+
+  const table = node("table", "compare-table");
+  const headRow = node("tr");
+  headRow.append(node("th", "", "指标"));
+  ids.forEach((id) => headRow.append(node("th", "", comparison.metrics[id].label)));
+  table.append(headRow);
+
+  const rows = [
+    ["Runtime", (entry) => String(entry.runtime || "unknown")],
+    ["工具调用", (entry) => String(entry.metrics.tool_calls ?? 0)],
+    ["消息数", (entry) => String(entry.metrics.message_count ?? 0)],
+    ["Artifact 状态", (entry) => String(entry.metrics.artifact_state_count ?? 0)],
+    ["总费用", (entry) => entry.metrics.total_cost_usd == null ? "—" : "$" + Number(entry.metrics.total_cost_usd).toFixed(4)],
+    ["工具错误", (entry) => String(entry.error_count ?? 0)],
+  ];
+  rows.forEach(([label, read]) => {
+    const values = ids.map((id) => read(comparison.metrics[id]));
+    const numeric = values.map((value) => Number(value.replace(/[^0-9.\-]/g, "")) || 0);
+    const best = values.every((value) => !value.startsWith("$"))
+      ? (label === "工具错误" ? Math.min(...numeric) : Math.max(...numeric))
+      : -1;
+    const row = node("tr");
+    row.append(node("td", "compare-label", label));
+    values.forEach((value, index) => {
+      row.append(node("td", index === best && ids.length > 1 ? "compare-best" : "", value));
+    });
+    table.append(row);
+  });
+  elements.compareList.append(table);
+
+  const toolEntries = Object.entries(comparison.tool_diff || {});
+  if (toolEntries.length) {
+    const toolsBox = node("div", "compare-tools");
+    toolsBox.append(node("div", "compare-tools-title", "工具使用差异（" + comparison.shared_tools.length + " 个共用工具）"));
+    toolEntries.forEach(([tool, counts]) => {
+      const row = node("div", "compare-tool-row");
+      row.append(node("strong", "", tool));
+      ids.forEach((id, index) => {
+        const value = Number(counts[id]) || 0;
+        const other = Number(counts[ids[1 - index]]) || 0;
+        const tone = value > other ? "compare-more" : (value < other ? "compare-less" : "");
+        row.append(node("span", tone, String(value)));
+      });
+      toolsBox.append(row);
+    });
+    elements.compareList.append(toolsBox);
+  }
+}
+
 function openImage(image) {
   const modalImage = elements.imageModal.querySelector("img");
   modalImage.src = image.src;
@@ -554,6 +841,23 @@ elements.importForm.addEventListener("submit", async (event) => {
 });
 
 elements.refreshRuns.addEventListener("click", () => refreshLibrary());
+elements.compareGo.addEventListener("click", async () => {
+  const a = elements.compareA.value;
+  const b = elements.compareB.value;
+  if (!a || !b || a === b) {
+    elements.compareStatus.textContent = "请选择两个不同的 run";
+    elements.compareList.replaceChildren();
+    return;
+  }
+  elements.compareStatus.textContent = "对比中…";
+  try {
+    const result = await compareRuns([a, b]);
+    state.compareResult = result;
+    renderCompareResult(result);
+  } catch (error) {
+    elements.compareStatus.textContent = "对比失败：" + error.message;
+  }
+});
 document.querySelectorAll("[data-role]").forEach((button) => {
   button.addEventListener("click", async () => {
     const role = button.dataset.role;

@@ -59,6 +59,12 @@ def create_server(
             if path == "/api/runs":
                 self._json({"runs": service.list_runs()})
                 return
+            if path == "/api/runs/compare":
+                ids = [item for item in query.get("id", []) if item]
+                if len(ids) < 2:
+                    raise ValueError("at least two run ids are required")
+                self._json(service.compare(ids))
+                return
             parts = [part for part in path.split("/") if part]
             if len(parts) >= 3 and parts[:2] == ["api", "runs"]:
                 run_id = parts[2]
@@ -82,6 +88,15 @@ def create_server(
                             limit=limit,
                         )
                     )
+                    return
+                if len(parts) == 4 and parts[3] == "analysis":
+                    self._json(service.analyze_run(run_id))
+                    return
+                if len(parts) == 4 and parts[3] == "errors":
+                    self._json(service.get_errors(run_id))
+                    return
+                if len(parts) == 4 and parts[3] == "artifact-diffs":
+                    self._json(service.get_artifact_diffs(run_id))
                     return
                 if len(parts) >= 5 and parts[3] == "files":
                     relative = "/".join(parts[4:])

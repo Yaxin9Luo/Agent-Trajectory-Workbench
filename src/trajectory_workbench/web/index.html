@@ -100,6 +100,36 @@
               <div class="panel-head"><div><h2>Slides Workbench</h2><p>观察证据与对应 artifact SHA</p></div></div>
               <div id="workbench-list" class="workbench-list"></div>
             </section>
+
+            <section class="panel inspector-card">
+              <div class="panel-head"><div><h2>Jev 语义分析</h2><p>TypeOne 模型对轨迹的结构化判断</p></div></div>
+              <div id="analysis-status" class="analysis-status">尚未分析</div>
+              <div id="analysis-list" class="analysis-list"></div>
+            </section>
+
+            <section class="panel inspector-card">
+              <div class="panel-head"><div><h2>错误与恢复</h2><p>工具失败与重试链</p></div></div>
+              <div id="errors-status" class="errors-status">尚未加载</div>
+              <div id="errors-list" class="errors-list"></div>
+            </section>
+
+            <section class="panel inspector-card">
+              <div class="panel-head"><div><h2>artifact 演变</h2><p>内容 diff 与大小变化</p></div></div>
+              <div id="diff-status" class="diff-status">尚未加载</div>
+              <div id="diff-list" class="diff-list"></div>
+            </section>
+
+            <section class="panel inspector-card">
+              <div class="panel-head"><div><h2>跨 run 对比</h2><p>并排比较两个 run</p></div></div>
+              <div class="compare-controls">
+                <select id="compare-a" aria-label="选择 run A"></select>
+                <span class="compare-arrow">⇄</span>
+                <select id="compare-b" aria-label="选择 run B"></select>
+                <button id="compare-go" type="button">对比</button>
+              </div>
+              <div id="compare-status" class="compare-status">选择两个 run 进行对比</div>
+              <div id="compare-list" class="compare-list"></div>
+            </section>
           </aside>
         </div>
       </div>
