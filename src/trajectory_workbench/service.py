@@ -105,6 +105,8 @@ class WorkbenchService:
         candidates = [root / "events.jsonl", root / "resolved_run_manifest.json"]
         candidates.extend((root / "attempts").glob("*/records/*.json"))
         candidates.extend((root / "attempts").glob("*/records/*.jsonl"))
+        for filename in ("system_prompt.md", "stdin.txt"):
+            candidates.extend((root / "attempts").glob("*/records/" + filename))
         rows: list[tuple[str, int, int]] = []
         for path in sorted(candidates):
             if not path.is_file():

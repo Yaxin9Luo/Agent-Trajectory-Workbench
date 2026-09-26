@@ -40,6 +40,7 @@ class NormalizedRun:
     artifact_states: list[dict[str, Any]]
     workbench: list[dict[str, Any]]
     runtime: dict[str, Any]
+    model_prompt: dict[str, Any] | None = None
 
     def summary_dict(self) -> dict[str, Any]:
         return {
@@ -56,4 +57,5 @@ class NormalizedRun:
             "artifact_states": self.artifact_states,
             "workbench": self.workbench,
             "runtime": self.runtime,
+            "model_prompt": self.model_prompt,
         }

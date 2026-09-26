@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -163,7 +166,84 @@ class MohV1Adapter:
             artifact_states=artifact_states,
             workbench=workbench,
             runtime=runtime,
+            model_prompt=self._model_prompt(root, records, process),
         )
+
+    def _model_prompt(
+        self, root: Path, records: Path, process: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        request_path = records / "request.json"
+        if (
+            request_path.is_symlink()
+            or not request_path.resolve().is_relative_to(root)
+            or not request_path.is_file()
+        ):
+            return None
+        prompt = self._read_json(request_path).get("model_prompt")
+        if (
+            not isinstance(prompt, dict)
+            or type(prompt.get("format_version")) is not int
+            or prompt["format_version"] != 1
+            or not isinstance(prompt.get("system_markdown"), str)
+            or not isinstance(prompt.get("user_markdown"), str)
+        ):
+            return None
+        binding = process.get("model_prompt")
+        if (
+            not isinstance(binding, dict)
+            or type(binding.get("format_version")) is not int
+            or binding["format_version"] != 1
+        ):
+            binding = {}
+        result: dict[str, Any] = {
+            "format_version": 1,
+            "scope": "moh_model_prompt_v1",
+            "source": request_path.relative_to(root).as_posix(),
+            "native_system_complete": False,
+        }
+        for role, filename in (("system", "system_prompt.md"), ("user", "stdin.txt")):
+            text = prompt[role + "_markdown"]
+            try:
+                expected = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            except UnicodeError:
+                return None
+            record_path = records / filename
+            record_sha = None
+            if (
+                not record_path.is_symlink()
+                and record_path.resolve().is_relative_to(root)
+                and record_path.is_file()
+            ):
+                try:
+                    with record_path.open("rb") as handle:
+                        record_sha = hashlib.file_digest(handle, "sha256").hexdigest()
+                except OSError:
+                    pass
+            process_sha = binding.get(role + "_markdown_sha256")
+            if not isinstance(process_sha, str):
+                process_sha = None
+            checks = {
+                "record_matches": None if record_sha is None else record_sha == expected,
+                "process_matches": None if process_sha is None else process_sha == expected,
+            }
+            if role == "user":
+                stdin_sha = process.get("stdin_sha256")
+                checks["stdin_matches"] = None if stdin_sha is None else stdin_sha == expected
+            status = "unverified"
+            if any(value is False for value in checks.values()):
+                status = "mismatch"
+            elif all(value is True for value in checks.values()):
+                status = "records_match"
+            result[role] = {
+                "text": text,
+                "sha256": expected,
+                "record_path": record_path.relative_to(root).as_posix(),
+                "record_sha256": record_sha,
+                "process_sha256": process_sha,
+                "status": status,
+                **checks,
+            }
+        return result
 
     def _normalize_message(
         self,
@@ -215,7 +295,7 @@ class MohV1Adapter:
         elif row_type == "system" and not text:
             text = json.dumps(row, ensure_ascii=False)
 
-        if not text and not thinking and not normalized_tools:
+        if not text and not thinking and not normalized_tools and row_type != "result":
             return None
         role = row_type
         if row_type == "assistant" and normalized_tools and not text:
@@ -228,6 +308,7 @@ class MohV1Adapter:
             "text": text,
             "thinking": thinking,
             "tools": normalized_tools,
+            **({"native_result": row} if row_type == "result" else {}),
         }
 
     def _collect_tool_results(
@@ -247,8 +328,33 @@ class MohV1Adapter:
                 results[tool_id] = {
                     "text": self._text_content(block.get("content", "")),
                     "is_error": bool(block.get("is_error", False)),
+                    "images": self._image_content(block.get("content", "")),
                 }
         return results
+
+    def _image_content(self, content: Any) -> list[dict[str, str]]:
+        images: list[dict[str, str]] = []
+        if not isinstance(content, list):
+            return images
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "image":
+                continue
+            source = block.get("source")
+            if not isinstance(source, dict) or source.get("type") != "base64":
+                continue
+            media_type, data = source.get("media_type"), source.get("data")
+            if not isinstance(media_type, str) or media_type not in {
+                "image/png", "image/jpeg", "image/gif", "image/webp"
+            }:
+                continue
+            if not isinstance(data, str) or not data:
+                continue
+            try:
+                base64.b64decode(data, validate=True)
+            except (ValueError, binascii.Error):
+                continue
+            images.append({"media_type": media_type, "data": data})
+        return images
 
     def _artifact_states(self, artifact_index: dict[str, Any]) -> list[dict[str, Any]]:
         states: list[dict[str, Any]] = []
@@ -286,14 +392,8 @@ class MohV1Adapter:
             except (TypeError, json.JSONDecodeError):
                 parsed = None
             asset_path = None
-            if isinstance(parsed, dict) and parsed.get("contact_sheet_path"):
-                relative = (
-                    Path("attempts")
-                    / attempt_id
-                    / "workspace"
-                    / str(parsed["contact_sheet_path"])
-                )
-                asset_path = relative.as_posix()
+            if isinstance(parsed, dict) and not (tool.get("result") or {}).get("images"):
+                asset_path = self._contact_sheet_path(root, attempt_id, parsed)
             observations.append(
                 {
                     "tool_id": tool["id"],
@@ -304,6 +404,30 @@ class MohV1Adapter:
                 }
             )
         return observations
+
+    def _contact_sheet_path(
+        self, root: Path, attempt_id: str, observation: dict[str, Any]
+    ) -> str | None:
+        supplied = observation.get("contact_sheet_path")
+        if not isinstance(supplied, str) or not supplied:
+            return None
+        relative = Path(supplied)
+        if relative.is_absolute() or ".." in relative.parts:
+            return None
+        attempt = root / "attempts" / attempt_id
+        directories = [attempt / "workspace", attempt / "records"]
+        directories.extend(sorted((attempt / "records").glob(".rsi-moh-slides-workbench*")))
+        expected_sha = observation.get("contact_sheet_sha256")
+        for directory in directories:
+            candidate = (directory / relative).resolve()
+            if not candidate.is_relative_to(root) or not candidate.is_file():
+                continue
+            if expected_sha:
+                with candidate.open("rb") as handle:
+                    if hashlib.file_digest(handle, "sha256").hexdigest() != expected_sha:
+                        continue
+            return candidate.relative_to(root).as_posix()
+        return None
 
     def _runtime(
         self,

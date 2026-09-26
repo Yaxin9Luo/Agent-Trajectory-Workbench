@@ -170,6 +170,11 @@ button { cursor: pointer; }
 .tool-box details { border-top: 1px solid #dce7df; }
 .tool-box summary { padding: 6px 9px; color: var(--muted); cursor: pointer; font-size: 9px; font-weight: 700; }
 .tool-box pre { max-height: 300px; margin: 0; padding: 9px; overflow: auto; color: #d7e0ef; background: #111827; font: 9px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-images { display: grid; gap: 6px; padding: 8px; }
+.tool-images img { display: block; width: 100%; max-height: 280px; object-fit: contain; background: #eef2f5; cursor: zoom-in; }
+.native-result-detail { margin-top: 8px; }
+.native-result-detail summary { color: var(--muted); cursor: pointer; font-size: 9px; font-weight: 700; }
+.native-result-detail pre { max-height: 350px; overflow: auto; padding: 9px; color: #d7e0ef; background: #111827; font: 9px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .empty-message { padding: 46px 18px; text-align: center; color: var(--muted); font-size: 11px; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 9px; border-top: 1px solid var(--line); }
 .pager button { padding: 0 10px; }

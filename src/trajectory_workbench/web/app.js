@@ -257,6 +257,22 @@ async function refreshMessages() {
 
 function renderMessages(messages) {
   elements.messages.replaceChildren();
+  const prompt = state.summary?.model_prompt;
+  if (prompt?.scope === "moh_model_prompt_v1") {
+    const panel = node("section", "tool-box model-prompt");
+    panel.append(node("h3", "", "MoH 输入记录 · 独立于原生轨迹"));
+    panel.append(node("p", "", "来源：" + prompt.source + "。System 是 MoH 追加内容，不包含 Claude Code 的完整原生 system；本地记录一致不代表已捕获完整 HTTP 请求。"));
+    [["system", "MoH system 扩展"], ["user", "MoH user 输入"]].forEach(([role, label]) => {
+      const part = prompt[role];
+      const status = part.status === "records_match"
+        ? "记录与摘要一致"
+        : (part.status === "mismatch" ? "不可验证：记录不一致" : "未验证：记录或摘要缺失");
+      const detail = detailBlock(label + " · " + status, part.text);
+      detail.append(node("p", "", part.record_path + " · 内容 SHA256 " + part.sha256));
+      panel.append(detail);
+    });
+    elements.messages.append(panel);
+  }
   if (!messages.length) {
     elements.messages.append(node("div", "empty-message", "没有符合当前筛选的消息"));
     return;
@@ -282,6 +298,11 @@ function renderMessages(messages) {
       article.append(detail);
     }
     message.tools.forEach((tool) => article.append(renderTool(tool)));
+    if (message.native_result) {
+      const detail = detailBlock("Native result · modelUsage", JSON.stringify(message.native_result, null, 2));
+      detail.className = "native-result-detail";
+      article.append(detail);
+    }
     elements.messages.append(article);
   });
 }
@@ -303,7 +324,22 @@ function renderTool(tool) {
   box.append(head);
   box.append(detailBlock("Input", JSON.stringify(tool.input, null, 2)));
   box.append(detailBlock(tool.result?.is_error ? "Result · error" : "Result", tool.result ? tool.result.text : "No matching tool_result record"));
+  appendToolImages(box, tool.result?.images || [], tool.name + " result");
   return box;
+}
+
+function appendToolImages(target, images, label) {
+  if (!images.length) return;
+  const gallery = node("div", "tool-images");
+  images.forEach((source, index) => {
+    const image = node("img");
+    image.loading = "lazy";
+    image.alt = label + " image #" + (index + 1);
+    image.src = "data:" + source.media_type + ";base64," + source.data;
+    image.addEventListener("click", () => openImage(image));
+    gallery.append(image);
+  });
+  target.append(gallery);
 }
 
 function detailBlock(label, content) {
@@ -438,7 +474,10 @@ function renderWorkbench() {
     if (observation.error_code || observation.message) {
       card.append(node("div", "workbench-raw", [observation.error_code, observation.message].filter(Boolean).join(" · ")));
     }
-    if (call.contact_sheet_relative_path) {
+    const images = state.summary.tools.find((tool) => tool.id === call.tool_id)?.result?.images || [];
+    if (images.length) {
+      appendToolImages(card, images, "Workbench #" + (index + 1));
+    } else if (call.contact_sheet_relative_path) {
       const image = node("img");
       image.loading = "lazy";
       image.alt = "Workbench contact sheet #" + (index + 1);
