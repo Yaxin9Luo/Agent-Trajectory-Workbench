@@ -768,11 +768,13 @@ function renderCompareResult(result) {
     const numeric = values.map((value) => Number(value.replace(/[^0-9.\-]/g, "")) || 0);
     const best = values.every((value) => !value.startsWith("$"))
       ? (label === "工具错误" ? Math.min(...numeric) : Math.max(...numeric))
-      : -1;
+      : null;
+    const bestCount = best === null ? 0 : numeric.filter((item) => item === best).length;
     const row = node("tr");
     row.append(node("td", "compare-label", label));
     values.forEach((value, index) => {
-      row.append(node("td", index === best && ids.length > 1 ? "compare-best" : "", value));
+      const tone = best !== null && bestCount === 1 && numeric[index] === best ? "compare-best" : "";
+      row.append(node("td", tone, value));
     });
     table.append(row);
   });
