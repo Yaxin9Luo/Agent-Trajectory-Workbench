@@ -86,5 +86,19 @@ class WorkbenchServiceTest(unittest.TestCase):
         )
 
 
+    def test_get_run_payload_excludes_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            run = make_moh_run(base / "run")
+            service = WorkbenchService(Registry(base / "registry.json"))
+            run_id = service.import_run(str(run), None)["id"]
+            payload = service.get_run(run_id)
+
+        self.assertNotIn("messages", payload)
+        self.assertIn("metrics", payload)
+        self.assertIn("timeline", payload)
+        self.assertIn("tool_catalog", payload)
+
+
 if __name__ == "__main__":
     unittest.main()

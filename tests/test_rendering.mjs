@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
+import { terminalCards } from "../src/trajectory_workbench/web/presentation.mjs";
 
 class Element {
   constructor(tagName) {
@@ -152,4 +153,13 @@ test("unmatched or missing prompt evidence stays visibly unverified even with no
   assert.match(labels, /不可验证：记录不一致/);
   assert.match(labels, /未验证：记录或摘要缺失/);
   assert.doesNotMatch(labels, /记录与摘要一致/);
+});
+
+test("terminalCards treats a string exit code zero as success", () => {
+  const cards = terminalCards({
+    runtime: { exit_code: "0", process_terminal_reason: "completed", classification: "completed" },
+    metrics: { max_offset_ms: 1000 },
+    artifact_states: [{ size_bytes: 10, artifact_sha256: "abc" }],
+  });
+  assert.equal(cards[0].state, "ok");
 });

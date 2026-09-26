@@ -21,8 +21,8 @@ export function terminalCards(run) {
   const runtime = run.runtime;
   const finalState = run.artifact_states.at(-1);
   const reason = runtime.process_terminal_reason || "unknown";
-  const processCompleted = reason === "completed" && runtime.exit_code === 0;
-  const processFailed = runtime.exit_code != null && runtime.exit_code !== 0;
+  const processCompleted = reason === "completed" && Number(runtime.exit_code) === 0;
+  const processFailed = runtime.exit_code != null && Number(runtime.exit_code) !== 0;
   const processLabel = reason === "completed" && processFailed ? "failed" : reason;
   const classification = runtime.classification || "unknown";
   return [

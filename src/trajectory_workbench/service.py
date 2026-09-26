@@ -37,6 +37,7 @@ class WorkbenchService:
     def get_run(self, run_id: str) -> dict[str, Any]:
         entry, normalized = self._load(run_id)
         payload = normalized.summary_dict()
+        payload.pop("messages", None)  # fetched separately via get_messages
         payload["id"] = entry.id
         payload["label"] = entry.label
         payload["available"] = entry.available

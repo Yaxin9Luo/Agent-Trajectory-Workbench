@@ -230,7 +230,10 @@ function renderToolFilter() {
 
 function activeMessageRoles() {
   const roles = new Set(state.roles);
-  if (state.tool) roles.add("tool");
+  if (state.tool) {
+    roles.add("assistant");
+    roles.add("tool");
+  }
   return [...roles];
 }
 

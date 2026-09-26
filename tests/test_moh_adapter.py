@@ -254,5 +254,38 @@ class MohV1AdapterTest(unittest.TestCase):
         self.assertEqual(normalized.native_tool_surfaces, [])
 
 
+    def test_result_text_serializes_non_string_values_as_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run = make_moh_run(Path(temp) / "run")
+            trace_path = run / "attempts/001/records/trajectory.jsonl"
+            trace = [json.loads(line) for line in trace_path.read_text().splitlines()]
+            trace[-1]["result"] = {"status": "completed", "artifacts": ["a.html"]}
+            write_jsonl(trace_path, trace)
+
+            normalized = MohV1Adapter().load(run)
+
+        result_messages = [m for m in normalized.messages if m["role"] == "result"]
+        self.assertEqual(len(result_messages), 1)
+        self.assertEqual(
+            result_messages[0]["text"],
+            json.dumps({"status": "completed", "artifacts": ["a.html"]}, ensure_ascii=False),
+        )
+
+    def test_image_content_deduplicates_identical_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run = make_moh_run(Path(temp) / "run")
+            trace_path = run / "attempts/001/records/trajectory.jsonl"
+            trace = [json.loads(line) for line in trace_path.read_text().splitlines()]
+            dup = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "cG5n"}}
+            trace[6]["message"]["content"][0]["content"].append(dup)
+            trace[6]["message"]["content"][0]["content"].append(dup)
+            write_jsonl(trace_path, trace)
+
+            normalized = MohV1Adapter().load(run)
+
+        result = normalized.tools[1]["result"]
+        self.assertEqual(result.get("images"), [{"media_type": "image/png", "data": "cG5n"}])
+
+
 if __name__ == "__main__":
     unittest.main()

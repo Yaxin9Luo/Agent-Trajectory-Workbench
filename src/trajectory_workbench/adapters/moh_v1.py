@@ -291,7 +291,7 @@ class MohV1Adapter:
                 )
 
         if row_type == "result":
-            text = str(row.get("result") or row.get("error") or "")
+            text = self._result_text(row)
         elif row_type == "system" and not text:
             text = json.dumps(row, ensure_ascii=False)
 
@@ -334,6 +334,7 @@ class MohV1Adapter:
 
     def _image_content(self, content: Any) -> list[dict[str, str]]:
         images: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
         if not isinstance(content, list):
             return images
         for block in content:
@@ -353,6 +354,10 @@ class MohV1Adapter:
                 base64.b64decode(data, validate=True)
             except (ValueError, binascii.Error):
                 continue
+            key = (media_type, data)
+            if key in seen:
+                continue
+            seen.add(key)
             images.append({"media_type": media_type, "data": data})
         return images
 
@@ -608,6 +613,16 @@ class MohV1Adapter:
             for item in content
             if isinstance(item, dict) and item.get("type") == "text"
         )
+
+    def _result_text(self, row: dict[str, Any]) -> str:
+        for key in ("result", "error"):
+            value = row.get(key)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                return value
+            return json.dumps(value, ensure_ascii=False)
+        return ""
 
     def _read_json(self, path: Path) -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))

@@ -34,7 +34,8 @@ class WebAssetsTest(unittest.TestCase):
         app = (WEB / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("function activeMessageRoles()", app)
-        self.assertIn('if (state.tool) roles.add("tool")', app)
+        self.assertIn('roles.add("assistant")', app)
+        self.assertIn('roles.add("tool")', app)
 
 
 if __name__ == "__main__":
