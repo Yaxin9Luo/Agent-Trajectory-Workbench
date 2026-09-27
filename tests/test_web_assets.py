@@ -1,41 +1,44 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
 
-WEB = (
-    Path(__file__).parents[1]
-    / "src"
-    / "trajectory_workbench"
-    / "web"
-)
+WEB = Path(__file__).parents[1] / "src" / "trajectory_workbench" / "web"
 
 
 class WebAssetsTest(unittest.TestCase):
-    def test_frontend_assets_and_accessible_controls_exist(self) -> None:
+    def test_shell_references_assets_and_labels_controls(self) -> None:
         index = (WEB / "index.html").read_text(encoding="utf-8")
-
         self.assertIn('href="/styles.css"', index)
         self.assertIn('src="/app.js"', index)
-        self.assertIn('aria-label="MoH run 绝对路径"', index)
-        self.assertIn('aria-label="工具筛选"', index)
-        self.assertIn('aria-label="搜索轨迹"', index)
+        self.assertIn('aria-label="绝对路径"', index)
+        self.assertIn('aria-label="主导航"', index)
+        for view in ("library", "compare", "stats", "queue"):
+            self.assertIn(f'data-nav="{view}"', index)
 
-    def test_api_is_same_origin_and_model_content_uses_text_content(self) -> None:
+    def test_no_module_parses_transcript_text_as_html(self) -> None:
+        scripts = [WEB / "app.js", WEB / "api.js", WEB / "dom.js", WEB / "presentation.mjs", *sorted((WEB / "views").glob("*.js"))]
+        self.assertGreater(len(scripts), 8)
+        for script in scripts:
+            source = script.read_text(encoding="utf-8")
+            with self.subTest(script=script.name):
+                self.assertNotRegex(source, r"\.(innerHTML|outerHTML)\s*=|insertAdjacentHTML|document\.write")
+        dom = (WEB / "dom.js").read_text(encoding="utf-8")
+        self.assertIn("element.textContent = value", dom)
+        self.assertIn("document.createTextNode", dom)
+
+    def test_api_is_same_origin(self) -> None:
         api = (WEB / "api.js").read_text(encoding="utf-8")
-        app = (WEB / "app.js").read_text(encoding="utf-8")
-
         self.assertIn('const API_ROOT = "/api"', api)
-        self.assertNotIn("innerHTML = message.text", app)
-        self.assertIn(".textContent = message.text", app)
+        self.assertIsNone(re.search(r"https?://", api))
 
-    def test_selecting_a_tool_always_includes_tool_messages(self) -> None:
-        app = (WEB / "app.js").read_text(encoding="utf-8")
-
-        self.assertIn("function activeMessageRoles()", app)
-        self.assertIn('roles.add("assistant")', app)
-        self.assertIn('roles.add("tool")', app)
+    def test_every_imported_module_exists(self) -> None:
+        for script in [WEB / "app.js", *sorted((WEB / "views").glob("*.js"))]:
+            for target in re.findall(r'from "(\.[^"]+)"', script.read_text(encoding="utf-8")):
+                with self.subTest(script=script.name, target=target):
+                    self.assertTrue((script.parent / target).resolve().is_file())
 
 
 if __name__ == "__main__":

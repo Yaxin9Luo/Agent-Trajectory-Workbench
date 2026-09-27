@@ -7,7 +7,7 @@ from pathlib import Path
 
 from trajectory_workbench.insights import artifact_diff, compare_runs, error_aggregation
 from trajectory_workbench.models import NormalizedRun
-from trajectory_workbench.registry import Registry
+from trajectory_workbench.store import Store
 from trajectory_workbench.service import WorkbenchService
 from tests.fixtures import make_moh_run
 
@@ -114,8 +114,9 @@ class InsightsServiceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             run = make_moh_run(base / "run")
-            service = WorkbenchService(Registry(base / "registry.json"))
-            run_id = service.import_run(str(run), None)["id"]
+            service = WorkbenchService(Store(base / "index.db"), reviewer="t")
+            service.import_path(str(run), None)
+            run_id = service.list_trajectories()["items"][0]["id"]
             errors = service.get_errors(run_id)
             diffs = service.get_artifact_diffs(run_id)
             comparison = service.compare([run_id, run_id])

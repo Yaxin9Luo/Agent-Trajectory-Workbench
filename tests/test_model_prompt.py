@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from trajectory_workbench.adapters.moh_v1 import MohV1Adapter
-from trajectory_workbench.registry import Registry
+from trajectory_workbench.store import Store
 from trajectory_workbench.service import WorkbenchService
 from tests.fixtures import make_moh_run, write_json
 
@@ -156,17 +156,18 @@ class ModelPromptTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             run = make_moh_run(Path(temp) / "run")
             add_model_prompt(run)
-            service = WorkbenchService(Registry(Path(temp) / "registry.json"))
-            run_id = service.import_run(str(run), "Prompt fixture")["id"]
+            service = WorkbenchService(Store(Path(temp) / "index.db"), reviewer="t")
+            service.import_path(str(run), "Prompt fixture")
+            run_id = service.list_trajectories()["items"][0]["id"]
             before = service.get_messages(run_id)
-            summary = service.get_run(run_id)
+            summary = service.get_trajectory(run_id)
             self.assertIsInstance(summary.get("model_prompt"), dict)
             self.assertEqual(summary["model_prompt"]["system"]["status"], "records_match")
 
             for role, filename in (("system", "system_prompt.md"), ("user", "stdin.txt")):
                 with self.subTest(role=role):
                     (run / "attempts/001/records" / filename).write_bytes(b"changed")
-                    refreshed = service.get_run(run_id)
+                    refreshed = service.get_trajectory(run_id)
                     self.assertEqual(refreshed["model_prompt"][role]["status"], "mismatch")
             self.assertEqual(service.get_messages(run_id), before)
             self.assertEqual(summary["metrics"]["message_count"], before["total"])

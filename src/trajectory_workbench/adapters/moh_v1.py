@@ -5,13 +5,39 @@ import binascii
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
+from trajectory_workbench.adapters.common import classify_failure, make_outcome, strip_reminders, task_key, title_from
 from trajectory_workbench.models import NormalizedRun, ProbeResult
+
+
+# Runtime classifications written by MoH, mapped to the shared outcome vocabulary.
+MOH_PASS = {"completed", "passed", "success"}
 
 
 class MohV1Adapter:
     adapter_id = "moh-v1"
+    label = "MoH run"
+
+    def detect(self, path: Path) -> bool:
+        return path.is_dir() and (path / "events.jsonl").is_file() and (path / "attempts").is_dir()
+
+    def iter_runs(self, path: Path) -> Iterator[tuple[dict[str, Any] | None, NormalizedRun]]:
+        yield None, self.load(path)
+
+    def fingerprint(self, path: Path) -> tuple[tuple[str, int, int], ...]:
+        root = path.expanduser().resolve()
+        candidates = [root / "events.jsonl", root / "resolved_run_manifest.json"]
+        candidates.extend((root / "attempts").glob("*/records/*.json"))
+        candidates.extend((root / "attempts").glob("*/records/*.jsonl"))
+        for filename in ("system_prompt.md", "stdin.txt"):
+            candidates.extend((root / "attempts").glob("*/records/" + filename))
+        rows: list[tuple[str, int, int]] = []
+        for item in sorted(candidates):
+            if item.is_file():
+                stat = item.stat()
+                rows.append((str(item.relative_to(root)), stat.st_mtime_ns, stat.st_size))
+        return tuple(rows)
 
     def probe(self, path: Path) -> ProbeResult:
         root = path.expanduser().resolve()
@@ -38,7 +64,7 @@ class MohV1Adapter:
                 errors.append(f"Missing attempts/{attempt.name}/records/{name}")
         return ProbeResult(ok=not errors, errors=errors, attempt_id=attempt.name)
 
-    def load(self, path: Path) -> NormalizedRun:
+    def load(self, path: Path, locator: dict[str, Any] | None = None) -> NormalizedRun:
         root = path.expanduser().resolve()
         probe = self.probe(root)
         if not probe.ok or probe.attempt_id is None:
@@ -140,11 +166,45 @@ class MohV1Adapter:
         session_tools = self._session_tools(trace)
         tool_catalog = self._tool_catalog(tools, session_tools, declared_tools)
 
+        model_prompt = self._model_prompt(root, records, process)
+        for index, message in enumerate(messages, start=1):
+            message["step"] = index
+            for tool in message["tools"]:
+                tool["step"] = index
+        instruction = None
+        if model_prompt and model_prompt.get("user"):
+            instruction = model_prompt["user"]["text"]
+        else:
+            first_user = next((m for m in messages if m["role"] == "user" and strip_reminders(m["text"])), None)
+            instruction = strip_reminders(first_user["text"]) if first_user else None
+        # MoH manifests carry no task id; runs of the same task pair up by instruction hash.
+        task_id = None
+        classification = str(runtime["classification"])
+        classified = None if classification in MOH_PASS else classify_failure(classification)
+        if classification in MOH_PASS:
+            status = "pass"
+        elif classified and classified["kind"]:
+            status = classified["status"]
+        else:
+            status = "fail" if "fail" in classification or "invalid" in classification else "unknown"
+        outcome = make_outcome(
+            status,
+            # The classification (not the free-text message) so failures group by type.
+            reason=None if status == "pass" else classification,
+            source="MoH runtime",
+            infra_failure=False if status == "pass" else (classified or {}).get("infra_failure"),
+            detail={
+                "classification": classification,
+                "exit_code": runtime.get("exit_code"),
+                "failure_message": runtime.get("failure_message"),
+                "failure_kind": (classified or {}).get("kind"),
+            },
+        )
         return NormalizedRun(
             adapter_id=self.adapter_id,
             source_path=str(root),
             run_id=root.name,
-            title=root.name,
+            title=title_from(instruction) or root.name,
             attempt_id=attempt_id,
             metrics={
                 "model": model,
@@ -157,6 +217,9 @@ class MohV1Adapter:
                 "artifact_state_count": len(artifact_states),
                 "workbench_calls": len(workbench),
                 "total_cost_usd": total_cost_usd,
+                "has_clock": True,
+                "tool_errors": sum(1 for t in tools if (t.get("result") or {}).get("is_error")),
+                "assistant_turns": sum(1 for m in messages if m["role"] in {"assistant", "tool"}),
             },
             timeline=timeline,
             messages=messages,
@@ -166,7 +229,15 @@ class MohV1Adapter:
             artifact_states=artifact_states,
             workbench=workbench,
             runtime=runtime,
-            model_prompt=self._model_prompt(root, records, process),
+            model_prompt=model_prompt,
+            task={"id": task_id, "key": task_key(task_id, instruction), "instruction": instruction},
+            outcome=outcome,
+            meta={
+                "format": "moh-v1",
+                "harness": "MoH",
+                "model": model,
+                "session_id": next((row.get("session_id") for row in trace if row.get("session_id")), None),
+            },
         )
 
     def _model_prompt(

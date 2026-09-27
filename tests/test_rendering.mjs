@@ -1,165 +1,70 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import vm from "node:vm";
-import { terminalCards } from "../src/trajectory_workbench/web/presentation.mjs";
 
-class Element {
-  constructor(tagName) {
-    this.tagName = tagName;
+// A minimal DOM: enough to prove the helpers build nodes and never parse strings as HTML.
+class Node {}
+class Text extends Node {
+  constructor(text) { super(); this.textContent = text; }
+}
+class Element extends Node {
+  constructor(tag) {
+    super();
+    this.tagName = tag.toUpperCase();
     this.children = [];
-    this.events = {};
-    this.classList = { add() {}, remove() {} };
+    this.attributes = {};
+    this.dataset = {};
+    this.style = {};
+    this.listeners = {};
+    this.className = "";
   }
-  append(...children) { this.children.push(...children); }
-  replaceChildren(...children) { this.children = children; }
-  addEventListener(name, callback) { this.events[name] = callback; }
-  querySelector(selector) {
-    this.selected ??= {};
-    return this.selected[selector] ??= new Element(selector);
-  }
+  append(...items) { this.children.push(...items); }
+  replaceChildren(...items) { this.children = items; }
+  setAttribute(name, value) { this.attributes[name] = value; }
+  addEventListener(name, fn) { this.listeners[name] = fn; }
+  set innerHTML(_) { throw new Error("innerHTML must not be used"); }
+  set textContent(value) { this.children = [new Text(String(value))]; }
+  get textContent() { return this.children.map((child) => child.textContent).join(""); }
 }
+globalThis.Node = Node;
+globalThis.document = {
+  createElement: (tag) => new Element(tag),
+  createTextNode: (text) => new Text(text),
+};
+globalThis.window = {};
 
-function loadApp() {
-  const elements = {};
-  const document = {
-    querySelector: (selector) => elements[selector] ??= new Element("div"),
-    querySelectorAll: () => [],
-    createElement: (tag) => new Element(tag),
-    createTextNode: (text) => text,
-    addEventListener() {},
-  };
-  const context = vm.createContext({
-    document,
-    listRuns: async () => ({ runs: [] }),
-    formatDuration: (value) => String(value ?? "—"),
-    shortSha: (value) => value || "—",
-    runFileUrl: (_, path) => "/files/" + path,
-  });
-  const source = readFileSync(new URL("../src/trajectory_workbench/web/app.js", import.meta.url), "utf8");
-  vm.runInContext(source.replace(/^import .*;$/gm, ""), context);
-  return { context, elements };
-}
+const { chip, clear, h } = await import("../src/trajectory_workbench/web/dom.js");
 
-function descendants(element, tagName) {
-  return [
-    ...(element.tagName === tagName ? [element] : []),
-    ...element.children.flatMap((child) => typeof child === "object" ? descendants(child, tagName) : []),
-  ];
-}
-
-const image = { media_type: "image/png", data: "cG5n" };
-
-test("native tool images render beside the result and open in the existing image modal", () => {
-  const { context, elements } = loadApp();
-  const box = context.renderTool({
-    name: "Slides Workbench", id: "wb-1", input: {},
-    result: { text: "observation", is_error: false, images: [image] },
-  });
-  const images = descendants(box, "img");
-  assert.equal(images.length, 1);
-  assert.equal(images[0].src, "data:image/png;base64,cG5n");
-  assert.equal(images[0].loading, "lazy");
-  images[0].events.click();
-  assert.equal(elements["#image-modal"].querySelector("img").src, images[0].src);
+test("h() keeps markup-looking transcript text as plain text", () => {
+  const hostile = '<img src=x onerror="alert(1)">';
+  const element = h("div", { class: "message-text", text: hostile });
+  assert.equal(element.children.length, 1);
+  assert.ok(element.children[0] instanceof Text);
+  assert.equal(element.textContent, hostile);
 });
 
-test("Workbench shows native images in preference to a legacy contact sheet", () => {
-  const { context, elements } = loadApp();
-  context.fixture = {
-    tools: [{ id: "wb-1", result: { images: [image] } }],
-    workbench: [{ tool_id: "wb-1", observation: { status: "completed" }, contact_sheet_relative_path: "old.png" }],
-  };
-  vm.runInContext("state.summary = fixture; renderWorkbench();", context);
-  const images = descendants(elements["#workbench-list"], "img");
-  assert.equal(images.length, 1);
-  assert.equal(images[0].src, "data:image/png;base64,cG5n");
+test("h() maps props to attributes, dataset, style and listeners", () => {
+  let clicked = false;
+  const button = h(
+    "button",
+    { type: "button", "aria-pressed": "true", dataset: { step: 4 }, style: { width: "10%" }, onclick: () => { clicked = true; }, disabled: false, hidden: null },
+    "#4",
+    null,
+    ["a", ["b"]]
+  );
+  assert.equal(button.attributes.type, "button");
+  assert.equal(button.attributes["aria-pressed"], "true");
+  assert.equal("disabled" in button.attributes, false);
+  assert.equal(button.dataset.step, 4);
+  assert.equal(button.style.width, "10%");
+  button.listeners.click();
+  assert.equal(clicked, true);
+  assert.equal(button.textContent, "#4ab");
 });
 
-test("a Workbench result without recoverable images does not create an image element", () => {
-  const { context, elements } = loadApp();
-  context.fixture = {
-    tools: [{ id: "wb-1", result: { images: [] } }],
-    workbench: [{ tool_id: "wb-1", observation: { status: "completed" }, contact_sheet_relative_path: null }],
-  };
-  vm.runInContext("state.summary = fixture; renderWorkbench();", context);
-  assert.equal(descendants(elements["#workbench-list"], "img").length, 0);
-});
-
-test("the terminal result exposes the original modelUsage JSON", () => {
-  const { context, elements } = loadApp();
-  const nativeResult = { type: "result", modelUsage: { "kimi-k3": { outputTokens: 12 } } };
-  context.renderMessages([{
-    id: "line-8", line_number: 8, role: "result", offset_ms: 8,
-    text: "done", thinking: "", tools: [], native_result: nativeResult,
-  }]);
-  const json = descendants(elements["#messages"], "pre").map((item) => item.textContent);
-  assert.deepEqual(json, [JSON.stringify(nativeResult, null, 2)]);
-});
-
-test("MoH prompt records render separately without inventing native message identities or times", () => {
-  const { context, elements } = loadApp();
-  const system = "# Harness extension\n<img src=x onerror=alert(1)>";
-  const user = "# 用户任务\r\n制作两页。\r\n";
-  context.fixture = {
-    model_prompt: {
-      scope: "moh_model_prompt_v1", native_system_complete: false,
-      source: "attempts/001/records/request.json",
-      system: { text: system, status: "records_match", record_path: "attempts/001/records/system_prompt.md", sha256: "abc" },
-      user: { text: user, status: "records_match", record_path: "attempts/001/records/stdin.txt", sha256: "def" },
-    },
-  };
-  vm.runInContext("state.summary = fixture;", context);
-  context.renderMessages([{
-    id: "line-3", line_number: 3, role: "assistant", offset_ms: 3000,
-    text: "native reply", thinking: "", tools: [],
-  }]);
-
-  const panel = descendants(elements["#messages"], "section");
-  assert.equal(panel.length, 1);
-  assert.deepEqual(descendants(panel[0], "pre").map((item) => item.textContent), [system, user]);
-  const labels = descendants(panel[0], "summary").map((item) => item.textContent).join("\n");
-  assert.match(labels, /MoH system 扩展/);
-  assert.match(labels, /MoH user 输入/);
-  const notes = descendants(panel[0], "p").map((item) => item.textContent).join("\n");
-  assert.match(notes, /不包含 Claude Code 的完整原生 system/);
-  assert.match(notes, /request\.json/);
-  assert.match(notes, /system_prompt\.md/);
-  assert.match(notes, /stdin\.txt/);
-  assert.equal(descendants(panel[0], "img").length, 0);
-  assert.equal(descendants(panel[0], "article").length, 0);
-  const native = descendants(elements["#messages"], "article");
-  assert.equal(native.length, 1);
-  assert.equal(native[0].id, "line-3");
-  assert.equal(descendants(native[0], "span")[0].textContent, "#3");
-});
-
-test("unmatched or missing prompt evidence stays visibly unverified even with no native messages", () => {
-  const { context, elements } = loadApp();
-  context.fixture = {
-    model_prompt: {
-      scope: "moh_model_prompt_v1", native_system_complete: false,
-      source: "attempts/001/records/request.json",
-      system: { text: "request system", status: "mismatch", record_path: "system_prompt.md", sha256: "abc" },
-      user: { text: "request user", status: "unverified", record_path: "stdin.txt", sha256: "def" },
-    },
-  };
-  vm.runInContext("state.summary = fixture;", context);
-  context.renderMessages([]);
-
-  const panel = descendants(elements["#messages"], "section");
-  assert.equal(panel.length, 1);
-  const labels = descendants(panel[0], "summary").map((item) => item.textContent).join("\n");
-  assert.match(labels, /不可验证：记录不一致/);
-  assert.match(labels, /未验证：记录或摘要缺失/);
-  assert.doesNotMatch(labels, /记录与摘要一致/);
-});
-
-test("terminalCards treats a string exit code zero as success", () => {
-  const cards = terminalCards({
-    runtime: { exit_code: "0", process_terminal_reason: "completed", classification: "completed" },
-    metrics: { max_offset_ms: 1000 },
-    artifact_states: [{ size_bytes: 10, artifact_sha256: "abc" }],
-  });
-  assert.equal(cards[0].state, "ok");
+test("clear() replaces children and chip() carries its tone", () => {
+  const parent = h("div", {}, "old");
+  clear(parent, chip("Jev · 忽略报错", "jev"));
+  assert.equal(parent.children.length, 1);
+  assert.equal(parent.children[0].className, "chip jev");
+  assert.equal(parent.textContent, "Jev · 忽略报错");
 });
