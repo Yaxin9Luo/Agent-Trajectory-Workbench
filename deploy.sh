@@ -1,41 +1,70 @@
 #!/usr/bin/env bash
+# Start, restart or stop the Workbench server in the background.
+#
+#   HOST=0.0.0.0 PORT=8416 ./deploy.sh        # start (or restart)
+#   PORT=8416 ./deploy.sh stop
+#   PORT=8416 ./deploy.sh status
+#
+# The index lives in $STATE (default ~/.agent-trajectory-workbench). Secrets such as
+# TYPESAFE_API_KEY (needed for Jev) are read from $ENV_FILE when it exists, so they never
+# go into this repository: `KEY=value` lines, chmod 600.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-export TYPESAFE_API_KEY="${TYPESAFE_API_KEY:-}"
+STATE="${STATE:-$HOME/.agent-trajectory-workbench}"
+DB="${DB:-$STATE/workbench.db}"
+HOST="${HOST:-127.0.0.1}"
+PORT="${PORT:-8877}"
+ENV_FILE="${ENV_FILE:-$HOME/.config/trajectory-workbench/env}"
+PYTHON="${PYTHON:-.venv/bin/python}"
+PID_FILE="$STATE/server-$PORT.pid"
+LOG_FILE="$STATE/server-$PORT.log"
+mkdir -p "$STATE"
 
-REGISTRY="${REGISTRY:-$HOME/.agent-trajectory-workbench/registry.json}"
-RUNS_DIR="${RUNS_DIR:-/Users/yaxinluo/Desktop/prov demo show/outputs}"
+running() { [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; }
 
-echo "=== Trajectory Workbench Deploy ==="
-echo "Registry: $REGISTRY"
-echo "Runs dir: $RUNS_DIR"
+stop() {
+  if running; then
+    kill "$(cat "$PID_FILE")"
+    for _ in 1 2 3 4 5 6 7 8 9 10; do running || break; sleep 0.5; done
+  fi
+  rm -f "$PID_FILE"
+}
 
-# Ensure registry exists with real runs
-if [ ! -f "$REGISTRY" ] || [ "$(python3 -c "import json; print(len(json.load(open('$REGISTRY'))['entries']))" 2>/dev/null || echo 0)" -lt 8 ]; then
-  echo "Registering real prov runs..."
-  uv run python3 -c "
-from pathlib import Path
-from trajectory_workbench.registry import Registry
-from trajectory_workbench.service import WorkbenchService
-import os
+case "${1:-start}" in
+  stop)
+    stop
+    echo "stopped"
+    exit 0
+    ;;
+  status)
+    if running; then echo "running (pid $(cat "$PID_FILE")), log: $LOG_FILE"; else echo "not running"; fi
+    exit 0
+    ;;
+  start | restart)
+    stop
+    ;;
+  *)
+    echo "usage: $0 [start|restart|stop|status]" >&2
+    exit 2
+    ;;
+esac
 
-registry = Registry(Path('$REGISTRY'))
-service = WorkbenchService(registry)
-runs_dir = Path('$RUNS_DIR')
-for run in sorted(runs_dir.iterdir()):
-    if not run.is_dir():
-        continue
-    try:
-        service.import_run(str(run), run.name)
-        print(f'  registered: {run.name}')
-    except Exception as e:
-        print(f'  skip: {run.name}: {e}')
-print(f'total: {len(service.list_runs())} runs')
-"
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
 fi
 
-# Start server
-echo "Starting server on http://127.0.0.1:8877 ..."
-uv run ./trajectory-workbench serve --registry "$REGISTRY" --port 8877
+nohup env PYTHONPATH=src "$PYTHON" -m trajectory_workbench --db "$DB" serve --host "$HOST" --port "$PORT" >>"$LOG_FILE" 2>&1 &
+echo $! >"$PID_FILE"
+sleep 1
+if running && curl -fsS -m 5 "http://127.0.0.1:$PORT/api/health" >/dev/null; then
+  echo "Trajectory Workbench: http://$(hostname):$PORT/  (pid $(cat "$PID_FILE"), log $LOG_FILE, Jev: $([ -n "${TYPESAFE_API_KEY:-}" ] && echo on || echo off))"
+else
+  echo "failed to start; last log lines:" >&2
+  tail -n 20 "$LOG_FILE" >&2
+  exit 1
+fi

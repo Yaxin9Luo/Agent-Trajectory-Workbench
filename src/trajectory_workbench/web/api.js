@@ -1,12 +1,10 @@
 const API_ROOT = "/api";
+const ALL_COLLECTIONS = "*";
 
 async function request(path, options = {}) {
   const response = await fetch(API_ROOT + path, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
   });
   if (!response.ok) {
     let message = response.statusText;
@@ -21,50 +19,64 @@ async function request(path, options = {}) {
   return response.json();
 }
 
-export function listRuns() {
-  return request("/runs");
-}
-
-export function importRun(path, label) {
-  return request("/runs", {
-    method: "POST",
-    body: JSON.stringify({ path, label: label || null }),
+function query(params) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    search.set(key, Array.isArray(value) ? value.join(",") : String(value));
   });
+  const text = search.toString();
+  return text ? "?" + text : "";
 }
 
-export function getRun(runId) {
-  return request("/runs/" + encodeURIComponent(runId));
-}
+const id = (value) => encodeURIComponent(value);
+const post = (path, body) => request(path, { method: "POST", body: JSON.stringify(body || {}) });
 
-export function getMessages(runId, filters) {
-  const query = new URLSearchParams();
-  if (filters.roles.length) query.set("roles", filters.roles.join(","));
-  if (filters.tool) query.set("tool", filters.tool);
-  if (filters.search) query.set("search", filters.search);
-  query.set("offset", String(filters.offset));
-  query.set("limit", String(filters.limit));
-  return request("/runs/" + encodeURIComponent(runId) + "/messages?" + query);
-}
+export const api = {
+  collections: () => request("/collections"),
+  taxonomy: () => request("/taxonomy"),
+  trajectories: (filters) => request("/trajectories" + query(filters)),
+  trajectory: (trajectoryId) => request("/trajectories/" + id(trajectoryId)),
+  messages: (trajectoryId, filters) => request("/trajectories/" + id(trajectoryId) + "/messages" + query(filters)),
+  episode: (trajectoryId) => request("/trajectories/" + id(trajectoryId) + "/episode"),
+  annotations: (trajectoryId) => request("/trajectories/" + id(trajectoryId) + "/annotations"),
+  saveAnnotation: (trajectoryId, fields) => post("/trajectories/" + id(trajectoryId) + "/annotations", fields),
+  deleteAnnotation: (trajectoryId, annotationId) =>
+    request("/trajectories/" + id(trajectoryId) + "/annotations/" + id(annotationId), { method: "DELETE" }),
+  excerptUrl: (trajectoryId, steps, hideOutcome) =>
+    API_ROOT + "/trajectories/" + id(trajectoryId) + "/excerpt.md" + query({ steps, hide_outcome: hideOutcome ? 1 : "" }),
+  ledgers: (trajectoryId) => request("/trajectories/" + id(trajectoryId) + "/ledgers"),
+  runLedgers: (trajectoryId, force = false) => post("/trajectories/" + id(trajectoryId) + "/ledgers", { force }),
+  errors: (trajectoryId) => request("/trajectories/" + id(trajectoryId) + "/errors"),
+  artifactDiffs: (trajectoryId) => request("/trajectories/" + id(trajectoryId) + "/artifact-diffs"),
+  saveReview: (trajectoryId, fields) => post("/trajectories/" + id(trajectoryId) + "/review", fields),
+  deleteReview: (trajectoryId) => request("/trajectories/" + id(trajectoryId) + "/review", { method: "DELETE" }),
+  suggest: (trajectoryId, notes) => post("/trajectories/" + id(trajectoryId) + "/suggest", notes),
+  analyze: (trajectoryId, force = false) => post("/trajectories/" + id(trajectoryId) + "/jev", { force }),
+  findSteps: (trajectoryId, text) => post("/trajectories/" + id(trajectoryId) + "/find", { query: text }),
+  queue: (params) => request("/queue" + query(params)),
+  search: (text, collection) => request("/search" + query({ q: text, collection })),
+  // "" (all collections) travels as ALL_COLLECTIONS so the A / B order survives.
+  explore: (collections) => request("/explore?" + collections.map((name) => "collection=" + encodeURIComponent(name || ALL_COLLECTIONS)).join("&")),
+  stats: (collection) => request("/stats" + query({ collection })),
+  startImport: (path, collection) => post("/imports", { path, collection: collection || null }),
+  batchJev: (collection, limit) => post("/jev/batch", { collection, limit }),
+  startExport: (filters, name, mode) => post("/exports", { filters, name, mode }),
+  reindex: (collection) => post("/collections/reindex", { collection }),
+  rewrites: (before, after) => request("/rewrites" + query({ before, after })),
+  rewriteDiff: (before, after) => request("/rewrite-diff" + query({ before, after })),
+  correctionsUrl: (collection, kind) => API_ROOT + "/corrections/export" + query({ collection, kind }),
+  job: (jobId) => request("/jobs/" + id(jobId)),
+  exportUrl: (collection) => API_ROOT + "/reviews/export" + query({ collection }),
+  fileUrl: (trajectoryId, relativePath) =>
+    API_ROOT + "/trajectories/" + id(trajectoryId) + "/files/" + relativePath.split("/").map(encodeURIComponent).join("/"),
+};
 
-export function getAnalysis(runId) {
-  return request("/runs/" + encodeURIComponent(runId) + "/analysis");
+export async function pollJob(jobId, onProgress, interval = 700) {
+  for (;;) {
+    const job = await api.job(jobId);
+    onProgress?.(job);
+    if (job.status !== "running") return job;
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
 }
-
-export function getErrors(runId) {
-  return request("/runs/" + encodeURIComponent(runId) + "/errors");
-}
-
-export function getArtifactDiffs(runId) {
-  return request("/runs/" + encodeURIComponent(runId) + "/artifact-diffs");
-}
-
-export function compareRuns(runIds) {
-  const query = runIds.map((id) => "id=" + encodeURIComponent(id)).join("&");
-  return request("/runs/compare?" + query);
-}
-
-export function runFileUrl(runId, relativePath) {
-  const encodedPath = relativePath.split("/").map(encodeURIComponent).join("/");
-  return API_ROOT + "/runs/" + encodeURIComponent(runId) + "/files/" + encodedPath;
-}
-

@@ -4,3 +4,4 @@ __pycache__/
 .coverage
 .agent-trajectory-workbench/
 src/*.egg-info/
+.claude/launch.json
