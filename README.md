@@ -147,7 +147,7 @@ On 4 whole trajectories (132 steps) plus 15 Jev-flagged steps per rare question:
 | claimed completion | flagged at p ≥ 0.8: 3/3 and 11/11 correct |
 | why files change | 85% agree |
 | ignored an error | flagged at p ≥ 0.7: 4 of 6 correct |
-| phase | 67% agree, mostly debug vs. implement (fixing a defect fits both) |
+| phase | 92% agree on the held-out trajectories (80% before separating "work out the cause" from "fix it" and "inspect own output" from "explore") |
 | misread result, mismatch, filler, violated constraint | 0–1 of ~15 flags correct: not flagged |
 
 The annotators were Claude subagents, not people, and the sample is small; treat these as
