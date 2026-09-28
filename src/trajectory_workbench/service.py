@@ -18,7 +18,11 @@ from trajectory_workbench import adapters as adapter_registry
 from trajectory_workbench import excerpt, explorer, exporter, harness, practice, readiness, rewrite, search, signals
 from trajectory_workbench.insights import artifact_diff, compare_runs, error_aggregation
 from trajectory_workbench.jev import (
+    HARNESS_FLAG,
     STEP_FLAG_LABELS,
+    STEP_NOULS,
+    UNVALIDATED,
+    flag_threshold,
     STEP_VERSION,
     TASK_VERSION,
     JevAnalyzer,
@@ -972,7 +976,8 @@ class WorkbenchService:
         return result
 
     def taxonomy(self) -> dict[str, Any]:
-        return {**practice.taxonomy(), "readiness_issues": readiness.ISSUE_LABELS, "jev_flags": STEP_FLAG_LABELS}
+        return {**practice.taxonomy(), "readiness_issues": readiness.ISSUE_LABELS, "jev_flags": STEP_FLAG_LABELS,
+                "jev_thresholds": {key: flag_threshold(key) for key in (*STEP_NOULS, HARNESS_FLAG)}, "jev_unvalidated": list(UNVALIDATED)}
 
     # -- Jev ----------------------------------------------------------------------------
 

@@ -101,9 +101,10 @@ and member role. Tick two rows to compare.
 **Jev assistance** (runs when a trajectory is opened; ~2–4 s and ~$0.002–0.01 each)
 - one request per agent step with only that step and the tool results it reacts to:
   phase (explore / plan / implement / verify / debug / report), noticed a problem, ignored
-  an error, misread a tool result (only asked when the full output is visible),
-  reasoning vs action mismatch, claimed completion, dependence on what the harness added
-  (below), filler, violated a task constraint; for file-changing steps, why the files change (required / fix /
+  an error, claimed completion, dependence on what the harness added (below). Misread a
+  tool result, reasoning vs action mismatch, filler and violated a task constraint are
+  still asked but do not flag: in the accuracy check below most of their hits were wrong
+  and no threshold separated the right ones; for file-changing steps, why the files change (required / fix /
   polish / support / unclear). Code aggregates the answers into flagged steps,
   turning-point candidates, "claimed done without verifying" and the **polish tail**
   (the closing stretch that only polishes, and the step where the deliverable was done);
@@ -134,6 +135,23 @@ name. For each trajectory:
 
 The reader's "Harness 增加的组件" panel lists the components with the steps that use each;
 the library's Jev filter finds the dependent samples.
+
+**How accurate the Jev judgments are** (Slides, 2026-09-28): two annotators labelled
+steps blind with the same questions and more context than Jev had; gold = both agree.
+On 4 whole trajectories (132 steps) plus 15 Jev-flagged steps per rare question:
+
+| Judgment | Result |
+| --- | --- |
+| depends on harness | precision 1.00, recall 0.87 on 2 held-out trajectories (81 steps; 0.81 before the v9 wording) |
+| noticed a problem | precision 0.89, recall 0.93 |
+| claimed completion | flagged at p ≥ 0.8: 3/3 and 11/11 correct |
+| why files change | 85% agree |
+| ignored an error | flagged at p ≥ 0.7: 4 of 6 correct |
+| phase | 67% agree, mostly debug vs. implement (fixing a defect fits both) |
+| misread result, mismatch, filler, violated constraint | 0–1 of ~15 flags correct: not flagged |
+
+The annotators were Claude subagents, not people, and the sample is small; treat these as
+a first measurement.
 
 **Search** — full-text search over every indexed step of a collection (Chinese phrases
 work); results jump to the step with the terms highlighted.

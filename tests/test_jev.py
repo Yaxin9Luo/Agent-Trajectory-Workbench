@@ -155,6 +155,8 @@ class AnalyzerTest(unittest.TestCase):
         client = FakeClient()
         result = JevAnalyzer(client_factory=lambda: client).analyze_steps(run)
         state = client.calls[0][0]
+        self.assertEqual(state["harness_use_found_by_code"], ["mcp `deck_bench`: the step calls it", "mcp `deck_bench`: the step names it in reasoning or message"])
+        self.assertNotIn("harness_use_found_by_code", client.calls[1][0])
         self.assertEqual(state["harness_added"]["stock_agent"], "Claude Code")
         self.assertEqual(state["harness_added"]["mcp_servers"], [{"server": "deck_bench", "tools": ["deck_bench"]}])
         self.assertEqual(state["harness_added"]["added_instruction_sections"][0]["section"], "Deck authoring")
@@ -167,6 +169,19 @@ class AnalyzerTest(unittest.TestCase):
         # Flagged although "none" is the single likeliest option: the way is the likelier other one.
         split = [{"step": 3, "p": {"harness_reliance": 0.55}, "harness": "none"}, {"step": 4, "p": {"harness_reliance": 0.9}, "harness": "cites_instruction"}]
         self.assertEqual(summarize_steps(split)["harness_counts"], {"unclear": 1, "cites_instruction": 1})
+
+    def test_flag_thresholds_and_unvalidated_questions(self) -> None:
+        records = [
+            {"step": 3, "phase": "implement", "p": {"claims_done": 0.6, "misreads_observation": 0.9, "thought_action_mismatch": 0.95}},
+            {"step": 4, "phase": "report", "p": {"claims_done": 0.85, "ignores_error": 0.65}},
+            {"step": 5, "phase": "debug", "p": {"ignores_error": 0.75, "filler": 0.8}},
+        ]
+        summary = summarize_steps(records)
+        self.assertEqual(summary["flagged"], {"claims_done": [4], "ignores_error": [5]})
+        self.assertEqual(summary["unvalidated"], {"misreads_observation": [3], "thought_action_mismatch": [3], "filler": [5]})
+        # Unvalidated questions no longer make turning points; ignores_error needs 0.7.
+        self.assertEqual(summary["turning_candidates"], [{"step": 5, "reasons": ["忽略报错"]}])
+        self.assertEqual(summary["claims_done_unverified"], [4])
 
     def test_service_errors_are_recorded_per_step(self) -> None:
         client = FakeClient(fail_on="Run tests.")
