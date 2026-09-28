@@ -38,7 +38,7 @@ from trajectory_workbench import harness
 from trajectory_workbench.signals import is_mutation
 
 
-STEP_VERSION = "steps-v8"
+STEP_VERSION = "steps-v9"
 TASK_VERSION = "task-v1"
 THRESHOLD = 0.5
 # Label suggestions are one Noul per taxonomy entry; a higher bar keeps loosely related
@@ -129,17 +129,35 @@ WORK_REASONS = {
     "unclear": "`step` gives too little reasoning to tell why it makes this change",
 }
 # Does the step depend on what the harness added on top of the stock agent? Asked only
-# when the trajectory's harness added something (harness.py lists it in the state). A
-# Choice with named ways of depending caught all 16 dependent steps among 40 hand-read
-# Slides steps with none flagged wrongly; a single yes/no Noul missed 4 of them
-# (scratchpad experiment, 2026-09-27).
+# when the trajectory's harness added something (harness.py lists it in the state, and
+# where code saw this step touch it). Scored on 131 Slides steps labelled blind by two
+# annotators (2026-09-28): the first wording had precision 1.00 / recall 0.75; spelling
+# out that processing harness files and tool products counts, that writing the
+# deliverable under the required name does not, and adding the code evidence gave
+# 0.99 / 0.82. A single yes/no Noul missed more than either (2026-09-27).
 HARNESS_RELIANCE = {
-    "none": "It works only on the user's task with the stock agent's own abilities (shell, reading, writing and editing files, search, web fetch, screenshots it takes itself, todo lists, subagents); it neither names nor relies on anything in `harness_added`",
-    "uses_component": "It decides to use, calls, or reasons about the output of something in `harness_added`: an extra tool or MCP server, a skill, a hook, or a harness-provided file",
+    "none": "It works only on the user's task with the stock agent's own abilities (shell, reading, writing and editing files, search, web fetch, screenshots it takes itself, todo lists, subagents). Writing or editing the deliverable under the file name the harness asks for is not dependence by itself",
+    "uses_component": "It calls, plans to use, or reasons about the output of an extra tool, MCP server, skill or hook in `harness_added`; or it reads, lists, unpacks or processes a harness-provided file (such as guidance archives), or works with material an added tool produced (such as embedding a generated image)",
     "cites_instruction": "It justifies what it does by the harness's added instructions in `harness_added` (their rules, budgets, required formats or conventions) rather than by the user's task",
 }
 HARNESS_FLAG = "harness_reliance"
-STEP_FLAG_LABELS = {**{key: spec["label"] for key, spec in STEP_NOULS.items()}, "polish": "打磨", HARNESS_FLAG: "依赖 harness"}
+# Per-question flag thresholds and questions that do not flag at all, from the 2026-09-28
+# evaluation on Slides (two blind annotators, gold = both agree; 132 steps of 4 whole
+# trajectories plus 15 Jev-flagged steps per rare question):
+# - claims_done at 0.5 flagged 5 steps with 3 true; at 0.8 3/3 and 11/11 in the rare set.
+# - ignores_error: 6/15 flagged steps true at 0.5, 4/6 at 0.7.
+# - misreads_observation 1/14, thought_action_mismatch 1/15, violates_constraint 1/15,
+#   filler 0/15 true at 0.5, and the few true ones scored as low as the false ones, so no
+#   threshold separates them. They are still asked and stored, but do not flag.
+FLAG_THRESHOLDS = {"claims_done": 0.8, "ignores_error": 0.7}
+UNVALIDATED = ("misreads_observation", "thought_action_mismatch", "violates_constraint", "filler")
+
+
+def flag_threshold(key: str) -> float:
+    return FLAG_THRESHOLDS.get(key, THRESHOLD)
+
+
+STEP_FLAG_LABELS = {**{key: spec["label"] for key, spec in STEP_NOULS.items() if key not in UNVALIDATED}, "polish": "打磨", HARNESS_FLAG: "依赖 harness"}
 TURNING_KEYS = ("ignores_error", "misreads_observation", "thought_action_mismatch", "violates_constraint")
 
 FINAL_CLAIMS = {
@@ -218,7 +236,11 @@ def agent_steps(run: Any) -> list[dict[str, Any]]:
 
 
 def step_state(
-    run: Any, message: dict[str, Any], previous: dict[str, Any] | None, added: dict[str, Any] | None = None
+    run: Any,
+    message: dict[str, Any],
+    previous: dict[str, Any] | None,
+    added: dict[str, Any] | None = None,
+    evidence: list[str] | None = None,
 ) -> dict[str, Any]:
     state: dict[str, Any] = {
         "about": DATA_NOTE,
@@ -257,6 +279,8 @@ def step_state(
             state["previous_observation"] = results
     if added:
         state["harness_added"] = added
+    if evidence:
+        state["harness_use_found_by_code"] = evidence
     return state
 
 
@@ -290,7 +314,8 @@ def step_questions(state: dict[str, Any], changes_files: bool = False) -> dict[s
         )
     if state.get("harness_added") and (has_text or step["tool_calls"]):
         questions["harness"] = Choice(
-            instructions="`harness_added` lists what this agent's harness added on top of the stock agent. Does `step` (its reasoning, message and tool calls) depend on any of it?",
+            instructions="`harness_added` lists what this agent's harness added on top of the stock agent. Does `step` (its reasoning, message and tool calls) depend on any of it?"
+            + (" `harness_use_found_by_code` lists where code found this step touching an added component." if state.get("harness_use_found_by_code") else ""),
             criteria=HARNESS_RELIANCE,
         )
     for key, spec in STEP_NOULS.items():
@@ -357,6 +382,7 @@ class JevAnalyzer:
         index_by_step = {m["step"]: m for m in run.messages}
         found = harness.inventory(run)
         added = {"stock_agent": BASE_NAMES.get(found["base"], "a coding agent"), **harness.prompt_summary(found)} if found["components"] else None
+        evidence = harness.step_evidence(harness.trace(run, found)) if added else {}
         for message in steps:
             prior = previous
             if prior is None:
@@ -367,7 +393,7 @@ class JevAnalyzer:
                      if index_by_step.get(s, {}).get("tools")),
                     None,
                 )
-            state = step_state(run, message, prior, added)
+            state = step_state(run, message, prior, added, evidence.get(message["step"]))
             requests.append((state, step_questions(state, any(is_mutation(tool) for tool in message["tools"]))))
             previous = message if message["tools"] else None
         responses = self._run(self._ask_all(requests)) if requests else []
@@ -622,7 +648,8 @@ def summarize_steps(records: list[dict[str, Any]], offsets: dict[int, int | None
     for record in analyzed:
         phase = record.get("phase") or "other"
         phase_counts[phase] = phase_counts.get(phase, 0) + 1
-    flagged: dict[str, list[int]] = {key: [] for key in (*STEP_NOULS, "polish", HARNESS_FLAG)}
+    flagged: dict[str, list[int]] = {key: [] for key in (*STEP_NOULS, "polish", HARNESS_FLAG) if key not in UNVALIDATED}
+    unvalidated: dict[str, list[int]] = {key: [] for key in UNVALIDATED}
     work_counts: dict[str, int] = {}
     harness_counts: dict[str, int] = {}
     for record in analyzed:
@@ -634,14 +661,17 @@ def summarize_steps(records: list[dict[str, Any]], offsets: dict[int, int | None
             harness_counts[way] = harness_counts.get(way, 0) + 1
     for record in analyzed:
         for key, probability in record["p"].items():
-            if probability >= THRESHOLD:
+            if key in unvalidated:
+                if probability >= THRESHOLD:
+                    unvalidated[key].append(record["step"])
+            elif key in flagged and probability >= flag_threshold(key):
                 flagged[key].append(record["step"])
     turning = []
     for record in analyzed:
         reasons = [
             STEP_NOULS[key]["label"]
             for key in TURNING_KEYS
-            if record["p"].get(key, 0) >= THRESHOLD
+            if key not in UNVALIDATED and record["p"].get(key, 0) >= flag_threshold(key)
         ]
         if reasons:
             turning.append({"step": record["step"], "reasons": reasons})
@@ -655,7 +685,7 @@ def summarize_steps(records: list[dict[str, Any]], offsets: dict[int, int | None
             last_implement, verified_since = record["step"], False
         elif phase == "verify":
             verified_since = True
-        if record["p"].get("claims_done", 0) >= THRESHOLD and last_implement is not None and not verified_since:
+        if record["p"].get("claims_done", 0) >= flag_threshold("claims_done") and last_implement is not None and not verified_since:
             unverified_claims.append(record["step"])
     total = len(analyzed) or 1
     return {
@@ -664,6 +694,8 @@ def summarize_steps(records: list[dict[str, Any]], offsets: dict[int, int | None
         "phase_share": {k: round(v / total, 3) for k, v in phase_counts.items()},
         "flagged": {k: v for k, v in flagged.items() if v},
         "flag_counts": {k: len(v) for k, v in flagged.items() if v},
+        # p >= 0.5 on questions that failed validation, shown for reference only.
+        "unvalidated": {k: v for k, v in unvalidated.items() if v},
         "turning_candidates": turning[:10],
         "first_problem_step": flagged["notices_problem"][0] if flagged["notices_problem"] else None,
         "claims_done_unverified": unverified_claims,

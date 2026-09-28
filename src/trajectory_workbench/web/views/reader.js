@@ -478,8 +478,11 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     const suppressed = new Set(run.signals?.suppressed || []);
     (run.signals?.flags || []).forEach((flag) => { if (!suppressed.has(flag.key) && flag.steps.includes(step)) labels.push([flag.label, flag.severity]); });
     const record = (state.jev?.steps?.steps || []).find((item) => item.step === step);
+    const thresholds = ctx.taxonomy.jev_thresholds || {};
+    const unvalidated = new Set(ctx.taxonomy.jev_unvalidated || []);
     Object.entries(record?.p || {}).forEach(([key, p]) => {
-      if (p >= 0.5 && key !== "notices_problem") labels.push(["Jev · " + jevLabel(key) + " " + Math.round(p * 100) + "%", "jev"]);
+      if (key === "notices_problem" || unvalidated.has(key)) return;
+      if (p >= (thresholds[key] ?? 0.5)) labels.push(["Jev · " + jevLabel(key) + " " + Math.round(p * 100) + "%", "jev"]);
     });
     if (record?.work && record.work !== "polish") labels.push(["改动：" + (WORK_LABELS[record.work] || record.work), "muted"]);
     return { labels, phase: record?.phase, problem: (record?.p?.notices_problem || 0) >= 0.5 };
@@ -950,7 +953,7 @@ function renderReadiness(run, ctx, reader) {
   );
 }
 
-const USE_LABELS = { calls: "调用", files: "参数里", mentions: "提到" };
+const USE_LABELS = { calls: "调用", files: "参数里", mentions: "提到", outputs: "用到其产出" };
 const KIND_LABELS = { mcp: "MCP", tool: "工具", skill: "Skill", hook: "Hook", instruction: "指令", file: "harness 文件" };
 const BASE_LABELS = { "claude-code": "Claude Code", codex: "Codex", pi: "pi" };
 
@@ -958,7 +961,7 @@ const BASE_LABELS = { "claude-code": "Claude Code", codex: "Codex", pi: "pi" };
 function renderHarness(run, reader) {
   const trace = run.harness;
   if (!trace) return null;
-  const used = (item) => ["calls", "files", "mentions"].flatMap((key) => item[key] || []);
+  const used = (item) => ["calls", "files", "mentions", "outputs"].flatMap((key) => item[key] || []);
   const components = [...trace.components].sort((a, b) => used(b).length - used(a).length);
   const base = BASE_LABELS[trace.base];
   const jevButton = h("button", { type: "button", class: "link-button" }, "高亮 Jev 判为依赖 harness 的步骤");
@@ -1001,7 +1004,7 @@ function renderHarness(run, reader) {
                 { class: "ledger-text" },
                 steps.length
                   ? [
-                      ["calls", "files", "mentions"].filter((key) => item[key]?.length).map((key) => USE_LABELS[key] + " " + item[key].length + " 步").join(" · "),
+                      ["calls", "files", "mentions", "outputs"].filter((key) => item[key]?.length).map((key) => USE_LABELS[key] + " " + item[key].length + " 步").join(" · "),
                       " ",
                       h("button", { type: "button", class: "link-button", onclick: () => reader.highlight(KIND_LABELS[item.kind] + " · " + item.name, steps) }, "高亮"),
                       ...steps.slice(0, 8).map((step) => h("button", { type: "button", class: "step-link", onclick: () => reader.jump(step) }, "#" + step)),

@@ -12,6 +12,8 @@ and marks the trained steps that use them:
     calls     the step calls an added tool, MCP server or skill
     files     a tool call's arguments name a file the harness instructions provide
     mentions  the step's reasoning or message names an added component
+    outputs   the step reads or names a file an added tool produced earlier (a generated
+              image, a saved inspection report), which the step alone would not reveal
 
 Whether a step's reasoning *depends* on the harness (plans around it, cites its rules)
 is a semantic judgment; Jev asks it per step with this inventory as context (jev.py).
@@ -76,8 +78,10 @@ FILE_EXTENSIONS = (
 # Directories (`tests/`) are left out: their names are everyday words.
 PATH_LIKE = re.compile(r"^(?:[\w.-]+/)*[\w-][\w.-]*\.(?:" + FILE_EXTENSIONS + r")$", re.IGNORECASE)
 KIND_LABELS = {"mcp": "MCP", "tool": "工具", "skill": "Skill", "hook": "Hook", "instruction": "指令", "file": "harness 文件"}
-USES = ("calls", "files", "mentions")
-USE_LABELS = {"calls": "调用", "files": "参数里", "mentions": "提到"}
+USES = ("calls", "files", "mentions", "outputs")
+USE_LABELS = {"calls": "调用", "files": "参数里", "mentions": "提到", "outputs": "用到其产出"}
+# Files named in an added tool's result that the agent had not used before the call.
+OUTPUT_PATH = re.compile(r"(?<![\w./-])((?:[\w.-]+/)*[\w-][\w.-]*\.(?:png|jpe?g|webp|gif|avif|svg|json|html|txt|md|csv|mp4|webm))(?![\w-])", re.IGNORECASE)
 
 
 def _key(name: str) -> str:
@@ -300,6 +304,11 @@ def trace(run: Any, found: dict[str, Any] | None = None) -> dict[str, Any]:
                 file_terms.setdefault(term, []).append(component)
     uses: dict[tuple[str, str], dict[str, list[int]]] = {}
 
+    # Paths an added tool returned, once the agent had not used them before (so the file
+    # it inspected, e.g. its own deliverable, is not mistaken for the tool's product).
+    outputs: dict[str, list[dict[str, Any]]] = {}
+    seen_text: list[str] = []
+
     def note(component: dict[str, Any], how: str, step: int) -> None:
         steps = uses.setdefault((component["kind"], component["name"]), {}).setdefault(how, [])
         if not steps or steps[-1] != step:
@@ -317,15 +326,34 @@ def trace(run: Any, found: dict[str, Any] | None = None) -> dict[str, Any]:
                 skill = _skill_name(tool.get("input"))
                 if skill in skills:
                     note(skills[skill], "calls", step)
+            arguments = _json_text(tool.get("input"))
             if file_terms:
-                for component in _found(_json_text(tool.get("input")), file_terms):
+                for component in _found(arguments, file_terms):
                     note(component, "files", step)
+            if outputs:
+                for component in _found(arguments, outputs):
+                    note(component, "outputs", step)
+            seen_text.append(arguments)
         prose = (message.get("thinking") or "") + "\n" + (message.get("text") or "")
         if prose_terms and prose.strip():
             for component in _found(prose, prose_terms):
                 note(component, "mentions", step)
+        if outputs and prose.strip():
+            for component in _found(prose, outputs):
+                note(component, "outputs", step)
+        seen_text.append(prose)
+        for tool in message["tools"]:
+            owner = by_tool.get(tool.get("raw_name") or tool["name"])
+            text = (tool.get("result") or {}).get("text") or ""
+            if owner is None or not text:
+                continue
+            earlier = "\n".join(seen_text)
+            for match in OUTPUT_PATH.finditer(text[:20000]):
+                path = match.group(1)
+                if len(path) >= 5 and path not in earlier and path not in file_terms and path not in outputs:
+                    outputs[path] = [owner]
     rows = []
-    totals: dict[str, set[int]] = {"calls": set(), "files": set(), "mentions": set()}
+    totals: dict[str, set[int]] = {how: set() for how in USES}
     for component in components:
         used = uses.get((component["kind"], component["name"]), {})
         for how, steps in used.items():
@@ -336,6 +364,24 @@ def trace(run: Any, found: dict[str, Any] | None = None) -> dict[str, Any]:
         "components": rows,
         "steps": {how: sorted(steps) for how, steps in totals.items() if steps},
     }
+
+
+EVIDENCE = {
+    "calls": "the step calls it",
+    "files": "the step passes it in tool arguments",
+    "mentions": "the step names it in reasoning or message",
+    "outputs": "the step uses a file it produced earlier",
+}
+
+
+def step_evidence(found: dict[str, Any]) -> dict[int, list[str]]:
+    """Per step, where code saw it touch an added component, as short lines for Jev."""
+    lines: dict[int, list[str]] = {}
+    for component in found["components"]:
+        for how in USES:
+            for step in component.get(how, []):
+                lines.setdefault(step, []).append(f"{component['kind']} `{component['name']}`: {EVIDENCE[how]}")
+    return lines
 
 
 def merge(*founds: dict[str, Any]) -> dict[str, Any]:

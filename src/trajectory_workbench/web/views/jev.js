@@ -138,6 +138,17 @@ export function renderJevPanel(slot, reader) {
         "div",
         { class: "jev-questions" },
         Object.entries(QUESTION_LABELS).map(([key, [label, help]]) => {
+          const unvalidated = (ctx.taxonomy.jev_unvalidated || []).includes(key);
+          if (unvalidated) {
+            // Failed the accuracy check: raw hits for reference, not flagged.
+            const raw = stepSummary.unvalidated?.[key] || [];
+            return h(
+              "div",
+              { class: "jev-question" },
+              h("div", {}, h("strong", { class: "muted" }, label), h("small", {}, "未通过准确率验证：Jev 标出的步骤大多是误报，所以不标出、不进筛选和统计")),
+              h("span", { class: "muted" }, raw.length ? "仅供参考 " + raw.length + " 步" : "—")
+            );
+          }
           const steps = flagged[key] || [];
           return h(
             "div",

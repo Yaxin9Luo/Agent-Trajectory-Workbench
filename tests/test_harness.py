@@ -184,6 +184,30 @@ class TraceTest(unittest.TestCase):
         self.assertNotIn("mentions", components["inputs/a/bundle.zip"])
         self.assertEqual(components["deck_bench"]["mentions"], [6])
 
+    def test_files_an_added_tool_produced_count_as_its_use(self) -> None:
+        builder = TranscriptBuilder()
+        builder.add_message("system", text=STOCK_PROMPT + ADDED)
+        builder.add_message("user", text="Make a 5-slide deck about tides.")
+        write = builder.add_message("assistant", text="Writing the deck.")
+        builder.add_tool_call(write, call_id="w", name="Write", tool_input={"file_path": "artifact.html", "content": "<html>"})
+        builder.set_result("w", text="ok")
+        check = builder.add_message("assistant", text="")
+        builder.add_tool_call(check, call_id="m", name=MCP, tool_input={"action": "inspect_deck"})
+        builder.set_result("m", text='{"artifact": "artifact.html", "contact_sheet": "reports/sheet_001.png"}')
+        crop = builder.add_message("assistant", text="", thinking="Crop the sheet to look at slide 3.")
+        builder.add_tool_call(crop, call_id="c", name="Bash", tool_input={"command": "python3 crop.py reports/sheet_001.png"})
+        builder.set_result("c", text="ok")
+        builder.add_message("assistant", text="Slide 3 fixed; see reports/sheet_001.png.")
+        run = finish_run(builder, adapter_id="t", source_path="/tmp/x", run_id="r", title=None, outcome=make_outcome(),
+                         available_tools=["Bash", "Write", MCP])
+        trace = harness.trace(run)
+        bench = by_name(trace)["deck_bench"]
+        self.assertEqual(bench["calls"], [4])
+        # The contact sheet the tool saved is its product; artifact.html was the agent's own file.
+        self.assertEqual(bench["outputs"], [5, 6])
+        self.assertEqual(by_name(trace)["artifact.html"]["files"], [3])
+        self.assertEqual(harness.step_evidence(trace)[5], ["mcp `deck_bench`: the step uses a file it produced earlier"])
+
     def test_flag_and_readiness_use_the_trace(self) -> None:
         run = self.run_steps()
         computed = signals.compute(run)
