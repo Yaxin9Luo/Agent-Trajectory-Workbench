@@ -393,8 +393,12 @@ class JevAnalyzer:
                     record["p"][key] = round(answers[key].noul, 3)
             reliance = answers.get("harness")
             if reliance is not None:
-                record["harness"] = reliance.choice
-                record["p"][HARNESS_FLAG] = round(1 - reliance.probabilities.get("none", 0.0), 3)
+                p_reliance = 1 - reliance.probabilities.get("none", 0.0)
+                record["p"][HARNESS_FLAG] = round(p_reliance, 3)
+                # Flagged while "none" is still the single likeliest option: record how it
+                # most likely depends.
+                ways = {k: v for k, v in reliance.probabilities.items() if k != "none"}
+                record["harness"] = max(ways, key=ways.get) if p_reliance >= THRESHOLD and ways else reliance.choice
             work = answers.get("work")
             if work is not None:
                 record["work"] = work.choice
@@ -624,8 +628,10 @@ def summarize_steps(records: list[dict[str, Any]], offsets: dict[int, int | None
     for record in analyzed:
         if record.get("work"):
             work_counts[record["work"]] = work_counts.get(record["work"], 0) + 1
-        if record["p"].get(HARNESS_FLAG, 0) >= THRESHOLD and record.get("harness") in HARNESS_RELIANCE:
-            harness_counts[record["harness"]] = harness_counts.get(record["harness"], 0) + 1
+        if record["p"].get(HARNESS_FLAG, 0) >= THRESHOLD:
+            # Records from before the way was stored for such steps say "none".
+            way = record.get("harness") if record.get("harness") in {"uses_component", "cites_instruction"} else "unclear"
+            harness_counts[way] = harness_counts.get(way, 0) + 1
     for record in analyzed:
         for key, probability in record["p"].items():
             if probability >= THRESHOLD:

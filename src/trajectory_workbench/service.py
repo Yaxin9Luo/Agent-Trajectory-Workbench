@@ -1120,6 +1120,7 @@ def harness_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     kinds: dict[str, int] = {}
     for summary in analyzed:
         for kind, count in (summary.get("harness_counts") or {}).items():
+            kind = "unclear" if kind == "none" else kind  # summaries written before the fix
             kinds[kind] = kinds.get(kind, 0) + bool(count)
     return {
         "trajectories": len(rows),

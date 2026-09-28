@@ -164,6 +164,9 @@ class AnalyzerTest(unittest.TestCase):
         self.assertEqual(summary["harness_counts"], {"uses_component": 1})
         self.assertEqual(result["steps"][0]["harness"], "uses_component")
         self.assertEqual(result["steps"][1]["p"]["harness_reliance"], 0.05)
+        # Flagged although "none" is the single likeliest option: the way is the likelier other one.
+        split = [{"step": 3, "p": {"harness_reliance": 0.55}, "harness": "none"}, {"step": 4, "p": {"harness_reliance": 0.9}, "harness": "cites_instruction"}]
+        self.assertEqual(summarize_steps(split)["harness_counts"], {"unclear": 1, "cites_instruction": 1})
 
     def test_service_errors_are_recorded_per_step(self) -> None:
         client = FakeClient(fail_on="Run tests.")

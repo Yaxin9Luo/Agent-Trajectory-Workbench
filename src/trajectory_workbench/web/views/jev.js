@@ -13,7 +13,7 @@ const QUESTION_LABELS = {
   polish: ["打磨", "改文件的步骤里，Jev 判为“对已能用的东西做可选美化”"],
   violates_constraint: ["违反题目约束", "动作违反任务里写明的要求"],
 };
-const RELIANCE_LABELS = { uses_component: "要用/解读 harness 组件", cites_instruction: "拿 harness 指令当理由" };
+const RELIANCE_LABELS = { uses_component: "要用/解读 harness 组件", cites_instruction: "拿 harness 指令当理由", unclear: "方式不明确" };
 const CLAIMS = { complete: "声称全部完成", partial: "声称部分完成", failed: "报告失败/受阻", asks_user: "以提问结束", none: "没有最终汇报" };
 
 export function renderJevPanel(slot, reader) {

@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from trajectory_workbench.jev import STEP_VERSION
 from trajectory_workbench.registry import DEFAULT_REGISTRY_PATH
 from trajectory_workbench.server import create_server
 from trajectory_workbench.service import WorkbenchService
@@ -81,7 +82,8 @@ def main() -> None:
     elif args.command == "analyze":
         rows = [
             row for row in service.store.all_trajectories(args.collection)
-            if not row.get("jev_summary")
+            # Same selection as the server's batch: never analyzed, or by an older version.
+            if not row.get("jev_summary") or row["jev_summary"].get("version") != STEP_VERSION
         ][: args.limit]
         failed = []
         for index, row in enumerate(rows, start=1):
