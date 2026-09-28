@@ -58,6 +58,15 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
+# httpx2 (inside the TypeSafe SDK) verifies TLS with `truststore` unless SSL_CERT_FILE is
+# set, and truststore crashed the process (double free / segfault in _configure_context)
+# when several Jev requests opened connections at once on Linux. Use the system bundle.
+if [ -z "${SSL_CERT_FILE:-}" ]; then
+  for bundle in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-bundle.crt; do
+    if [ -f "$bundle" ]; then export SSL_CERT_FILE="$bundle"; break; fi
+  done
+fi
+
 # A native crash prints the Python stack to the log instead of only "double free".
 nohup env PYTHONPATH=src PYTHONFAULTHANDLER=1 "$PYTHON" -m trajectory_workbench --db "$DB" serve --host "$HOST" --port "$PORT" >>"$LOG_FILE" 2>&1 &
 echo $! >"$PID_FILE"
