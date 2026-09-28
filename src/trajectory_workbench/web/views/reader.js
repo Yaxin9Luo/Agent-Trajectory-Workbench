@@ -790,7 +790,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   const review = renderReviewPanel(reviewSlot, api_);
   const jevPanel = renderJevPanel(jevSlot, api_);
   ledgerPanel = renderLedgerPanel(ledgerPane, api_, episode);
-  analysisPane.append(renderReadiness(run, ctx, api_), renderRelated(run, ctx), renderToolCatalog(run));
+  analysisPane.append(renderHarness(run, api_), renderReadiness(run, ctx, api_), renderRelated(run, ctx), renderToolCatalog(run));
   if (run.adapter_id === "moh-v1") renderMohPanels(analysisPane, run, trajectoryId, ctx);
   renderTabs();
   notes.load().catch(() => null);
@@ -897,7 +897,7 @@ function jevLabel(key) {
     misreads_observation: "误读工具返回",
     thought_action_mismatch: "思行不一",
     claims_done: "宣称完成",
-    harness_reference: "引用 harness",
+    harness_reliance: "依赖 harness",
     filler: "空转/道歉",
     polish: "打磨",
     violates_constraint: "违反题目约束",
@@ -912,7 +912,6 @@ function renderReadiness(run, ctx, reader) {
   if (!result) return null;
   const labels = ctx.taxonomy.readiness_issues || {};
   const trained = result.residue?.trained || {};
-  const context = result.residue?.context || {};
   return h(
     "section",
     { class: "panel inspector-card" },
@@ -940,14 +939,81 @@ function renderReadiness(run, ctx, reader) {
           )
         )
       : h("p", { class: "muted" }, "没有发现问题"),
-    Object.keys(trained).length || Object.keys(context).length
+    Object.keys(trained).length
       ? h(
           "p",
           { class: "hint" },
-          "harness 痕迹按位置：训练 token 里 " + (Object.entries(trained).map(([key, steps]) => key + " × " + steps.length).join("、") || "无") +
-            "；上下文里 " + (Object.entries(context).map(([key, steps]) => key + " × " + steps.length).join("、") || "无") + "（上下文里的不会被训练）"
+          "训练 token 里用到 harness 组件：" + Object.entries(trained).map(([key, steps]) => (USE_LABELS[key] || key) + " " + steps.length + " 步").join("、") +
+            "（组件和逐步位置见上方「Harness 增加的组件」）"
         )
       : null
+  );
+}
+
+const USE_LABELS = { calls: "调用", files: "参数里", mentions: "提到" };
+const KIND_LABELS = { mcp: "MCP", tool: "工具", skill: "Skill", hook: "Hook", instruction: "指令", file: "harness 文件" };
+const BASE_LABELS = { "claude-code": "Claude Code", codex: "Codex", pi: "pi" };
+
+/** What the harness added on top of the stock agent, and which trained steps use it. */
+function renderHarness(run, reader) {
+  const trace = run.harness;
+  if (!trace) return null;
+  const used = (item) => ["calls", "files", "mentions"].flatMap((key) => item[key] || []);
+  const components = [...trace.components].sort((a, b) => used(b).length - used(a).length);
+  const base = BASE_LABELS[trace.base];
+  const jevButton = h("button", { type: "button", class: "link-button" }, "高亮 Jev 判为依赖 harness 的步骤");
+  jevButton.addEventListener("click", () => {
+    const steps = reader.state.jev?.steps?.summary?.flagged?.harness_reliance || [];
+    if (steps.length) reader.highlight("Jev · 依赖 harness", steps);
+    else jevButton.textContent = reader.state.jev?.steps ? "Jev 没有标出依赖 harness 的步骤" : "先在「Jev 逐步分析」里运行 Jev";
+  });
+  return h(
+    "section",
+    { class: "panel inspector-card" },
+    h(
+      "div",
+      { class: "panel-head" },
+      h(
+        "div",
+        {},
+        h("h2", {}, "Harness 增加的组件"),
+        h(
+          "p",
+          {},
+          base
+            ? "相对原生 " + base + " 多出来的工具、MCP、Skill、Hook、指令段落和 harness 提供的文件；步号是模型自己的回合（训练 token）里用到它的地方"
+            : "认不出基座 agent，只按 MCP、Skill、Hook 和注入的指令判断"
+        )
+      )
+    ),
+    components.length
+      ? h(
+          "div",
+          { class: "ledger-list" },
+          components.slice(0, 60).map((item) => {
+            const steps = [...new Set(used(item))].sort((a, b) => a - b);
+            return h(
+              "div",
+              { class: "ledger-row" },
+              h("div", { class: "ledger-meta" }, chip(KIND_LABELS[item.kind] || item.kind, steps.length ? "warn" : "muted"), h("strong", {}, item.name)),
+              h(
+                "div",
+                { class: "ledger-text" },
+                steps.length
+                  ? [
+                      ["calls", "files", "mentions"].filter((key) => item[key]?.length).map((key) => USE_LABELS[key] + " " + item[key].length + " 步").join(" · "),
+                      " ",
+                      h("button", { type: "button", class: "link-button", onclick: () => reader.highlight(KIND_LABELS[item.kind] + " · " + item.name, steps) }, "高亮"),
+                      ...steps.slice(0, 8).map((step) => h("button", { type: "button", class: "step-link", onclick: () => reader.jump(step) }, "#" + step)),
+                    ]
+                  : h("span", { class: "muted" }, item.kind === "instruction" ? "引用指令要靠语义判断（Jev）" : "模型回合里没有用到"),
+                item.topics?.length ? h("small", { class: "muted", style: { display: "block" } }, item.topics.join(" · ")) : null
+              )
+            );
+          })
+        )
+      : h("p", { class: "muted" }, base ? "和原生 " + base + " 相比没有发现额外组件" : "没有发现额外组件"),
+    components.length ? h("p", { class: "hint" }, "规则只看调用和字面提到；推理里是否真的依赖（打算用、解读输出、拿 harness 指令当理由）由 Jev 逐步判断。", jevButton) : null
   );
 }
 

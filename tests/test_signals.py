@@ -73,13 +73,6 @@ class SignalTest(unittest.TestCase):
         codex = build([("", "", [("exec", {"input": f'tools.apply_patch("{patch}")'}, "ok", False)])], outcome=make_outcome("fail"))
         self.assertIn("/repo/tests/test_cli.py", flags(codex)["test_edit"]["detail"])
 
-    def test_harness_reference_needs_specific_patterns(self) -> None:
-        task_ref = build([("The instruction says tap zones on mobile.", "", [])])
-        self.assertNotIn("harness_ref", flags(task_ref))
-        self.assertEqual(signals.compute(task_ref)["values"]["harness_refs"], {"instruction_ref": 1})
-        budget = build([("", "I must finish before the hard limit; the soft target is one hour.", [])])
-        self.assertIn("提到时间预算", flags(budget)["harness_ref"]["detail"])
-
     def test_infra_errors_and_language_mix(self) -> None:
         infra = build([("", "", [("WebFetch", {"url": "x"}, "curl: (7) Failed: Connection refused", True)])])
         self.assertIn("infra_error", flags(infra))
@@ -101,17 +94,6 @@ class SignalTest(unittest.TestCase):
         layers = signals.compute(run)["values"]["layers"]
         self.assertEqual((layers["mcp"], layers["skill"], layers["subagent"], layers["base"]), (1, 1, 1, 1))
         self.assertEqual(flags(run)["subagent_edit"]["severity"], "info")
-
-
-class HarnessArgumentTest(unittest.TestCase):
-    def test_harness_run_directory_in_tool_arguments_is_residue(self) -> None:
-        workdir = "/workspace/output/moh-0123456789abcdef0123456789abcdef/runs/run-fedcba9876543210fedcba9876543210/attempts/001/workspace"
-        run = build([("Checking the file.", "", [("Read", {"file_path": workdir + "/index.html"}, "ok", False)]),
-                     ("", "", [("Bash", {"command": "ls src"}, "a.py", False)])])
-        found = flags(run)
-        self.assertEqual(found["harness_ref"]["steps"], [2])
-        self.assertIn("参数含 harness 运行目录", found["harness_ref"]["detail"])
-        self.assertEqual(signals.compute(run)["values"]["harness_refs"], {"harness_path_in_args": 1})
 
 
 if __name__ == "__main__":

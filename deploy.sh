@@ -58,7 +58,8 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-nohup env PYTHONPATH=src "$PYTHON" -m trajectory_workbench --db "$DB" serve --host "$HOST" --port "$PORT" >>"$LOG_FILE" 2>&1 &
+# A native crash prints the Python stack to the log instead of only "double free".
+nohup env PYTHONPATH=src PYTHONFAULTHANDLER=1 "$PYTHON" -m trajectory_workbench --db "$DB" serve --host "$HOST" --port "$PORT" >>"$LOG_FILE" 2>&1 &
 echo $! >"$PID_FILE"
 sleep 1
 if running && curl -fsS -m 5 "http://127.0.0.1:$PORT/api/health" >/dev/null; then

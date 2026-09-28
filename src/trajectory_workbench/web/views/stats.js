@@ -7,7 +7,7 @@ const JEV_KEYS = {
   misreads_observation: "误读工具返回",
   thought_action_mismatch: "思行不一",
   claims_done: "宣称完成",
-  harness_reference: "引用 harness",
+  harness_reliance: "依赖 harness",
   filler: "空转/道歉",
   violates_constraint: "违反题目约束",
   notices_problem: "发现问题",
@@ -144,6 +144,52 @@ export async function renderStats(root, ctx, still) {
       : null
   );
 
+  const hx = stats.harness;
+  const KIND = { mcp: "MCP", tool: "工具", skill: "Skill", hook: "Hook", instruction: "指令", file: "harness 文件" };
+  const RELIANCE = { uses_component: "要用/解读组件", cites_instruction: "拿 harness 指令当理由", unclear: "方式不明确" };
+  const harnessCard = h(
+    "section",
+    { class: "panel stat-card" },
+    h(
+      "div",
+      { class: "panel-head" },
+      h(
+        "div",
+        {},
+        h("h2", {}, "依赖 harness 的样本"),
+        h(
+          "p",
+          {},
+          hx.traced
+            ? "按条（训练样本）统计：" + hx.with_components + " / " + hx.traced + " 条的 harness 相对原生 agent 加了东西；规则（调用/参数/字面提到）命中 " + hx.rule_hits + " 条"
+            : "还没有组件记录（重新索引后生成）"
+        )
+      )
+    ),
+    hx.jev_analyzed
+      ? h(
+          "p",
+          { class: "hint" },
+          h("a", { href: "#/library?view=all&jev_flag=harness_reliance" }, "Jev 判为推理依赖 harness：" + hx.jev_hits + " / " + hx.jev_analyzed + " 条已分析"),
+          Object.keys(hx.jev_kinds).length ? "（" + Object.entries(hx.jev_kinds).map(([key, count]) => (RELIANCE[key] || key) + " " + count + " 条").join(" · ") + "）" : ""
+        )
+      : h("p", { class: "hint" }, "还没有 Jev 结果：在轨迹库「对未分析的轨迹跑 Jev」后，这里给出语义判断的依赖条数"),
+    hx.components.length
+      ? h(
+          "div",
+          { class: "bar-list" },
+          hx.components.slice(0, 12).map((item) =>
+            barRow(
+              KIND[item.kind] + " · " + item.name + (item.any ? "（调用 " + item.calls + " · 参数 " + item.files + " · 提到 " + item.mentions + "）" : "（有但没用到）"),
+              item.any,
+              hx.traced,
+              "#/library?view=all&flag=harness_ref"
+            )
+          )
+        )
+      : null
+  );
+
   const header = h(
     "header",
     { class: "page-head" },
@@ -156,7 +202,7 @@ export async function renderStats(root, ctx, still) {
       h("a", { class: "button-like", href: api.correctionsUrl(ctx.collection, "dpo"), download: "corrections-dpo.jsonl", title: "同一上下文：修正为 chosen，原来那一步为 rejected" }, "修正 → DPO")
     )
   );
-  clear(root, header, kpis, h("div", { class: "stat-grid" }, readinessCard, signalTable, jevCard, labelCard, confusionCard, interventionCard, turningCard, dailyCard));
+  clear(root, header, kpis, h("div", { class: "stat-grid" }, readinessCard, harnessCard, signalTable, jevCard, labelCard, confusionCard, interventionCard, turningCard, dailyCard));
 }
 
 function bar(value) {

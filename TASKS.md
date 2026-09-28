@@ -106,3 +106,11 @@
 
 ### 部署
 - [x] 开发机：~/.local 装 uv + Python 3.11（公共源下载不通时用镜像源的 conda 建环境）；原定端口被占用 → 8416；`HOST=0.0.0.0 PORT=8416 ./deploy.sh` 启停；从本机浏览器可访问；测试在开发机上通过
+
+## Harness 依赖（语义）
+- [x] 按名字匹配（MoH / IntentInspector / 运行目录）改成按组件：相对原生 Claude Code / Codex / pi 找出 harness 加的东西（MCP、额外工具、Skill、Hook、系统提示里原生没有的一级段落、注入的 CLAUDE.md/AGENTS.md、JSON 包装规则、这些指令里点名而题面没有的文件）
+- [x] 规则层：模型回合（训练 token）里调用 / 参数带 harness 文件 / 字面提到组件，按组件和步号记录；替换 harness_ref 旗标与就绪里的残留（只看训练 token）
+- [x] 语义层：Jev 逐步 Choice（不依赖 / 要用或解读组件 / 拿 harness 指令当理由），组件清单放在状态里；40 步人工标注：16/16 依赖步全部命中、0 误报（Noul 版漏 4 个，弃用）
+- [x] 阅读器“Harness 增加的组件”面板、库里 Jev 信号筛选（episode 任一成员）、统计页按组件的依赖条数
+- [x] 评审修复：Codex 原生工具补全（exec、collaboration__*、clock__sleep 等）且 Codex 自带的 developer 消息不算指令（300 条真实 Codex 会话：误报 246 → 4，剩下 4 条确实用了 MCP 插件）；MoH 的系统提示在 model_prompt 里也读；目录（`tests/`）不算 harness 文件；改写对比按原始轨迹的组件清单判断改写后的样本；MCP 工具的短名不重复算成工具；参数先做子串预筛（83 → 5 ms/条），绝对路径里的 harness 文件也能认出
+- [ ] 开发机上重新索引 Slides 并跑 Jev（开发机当前连不上）
