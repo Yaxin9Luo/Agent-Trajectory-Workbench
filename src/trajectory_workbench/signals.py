@@ -10,7 +10,8 @@ Flags:
     blind_retry   a failed call repeated with identical input
     no_verify     files were changed and nothing checked them afterwards
     test_edit     a test / eval file was modified (possible grader gaming)
-    harness_ref   the agent's text or reasoning refers to harness-only instructions
+    harness_ref   the model's own turns call, cite or name a component its harness added
+                  (see harness.py; whether the reasoning depends on it is Jev's call)
     infra_error   tool output looks like an environment or service failure
     redundancy    repeated paragraphs or apology / reassurance filler
     lang_mix      assistant prose switches language between turns
@@ -22,6 +23,8 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
+
+from trajectory_workbench import harness
 
 
 MUTATING_TOOLS = {
@@ -80,36 +83,6 @@ PATCH_PATH = re.compile(r"\*\*\* (Update|Add|Delete) File: ([^\s\\\"'`]+)")
 CREATING_TOOLS = {"write", "write_file", "create_file"}
 REDIRECT_PATH = re.compile(r">{1,2}\s*([\w./~-]+)")
 
-# Harness-reference patterns from the MoH trajectory-rewrite residual flags
-# (instruction_ref, time_limit_ref, leftover_harness). They mark text a model would not
-# write once the harness guidance is internalized.
-HARNESS_PATTERNS: dict[str, re.Pattern[str]] = {
-    "instruction_ref": re.compile(
-        r"\b(the|my|these|system)\s+(instructions?|system prompt|guidelines?)\s+(say|says|said|require|requires|tell|told|ask|asks|mention|state|states)\b|"
-        r"according to (the|my) (instructions|system prompt)|系统提示(要求|说)|指令(要求|里说)",
-        re.IGNORECASE,
-    ),
-    "time_limit_ref": re.compile(
-        r"soft target|hard (task )?limit|time budget|remaining_timeout|wall[- ]time budget|"
-        r"within (1|one) hour|hours? from task start|时间预算|硬性时限",
-        re.IGNORECASE,
-    ),
-    "leftover_harness": re.compile(
-        r"\bMoH\b|rsi[-_]moh|IntentInspector|three_d_review|CodeInspector|FastEye|"
-        r"harness task JSON|--append-system-prompt",
-    ),
-}
-# Tool arguments are trained tokens too: a harness run directory written into a command
-# teaches the model paths it will not have elsewhere. (Harness names are not scanned in
-# arguments: sessions that develop the harness itself mention it in every path.)
-HARNESS_ARG_PATTERNS: dict[str, re.Pattern[str]] = {
-    "harness_path_in_args": re.compile(r"\bmoh-[0-9a-f]{12,}\b|/runs/run-[0-9a-f]{12,}/attempts/"),
-}
-HARNESS_KEY_LABELS = {
-    "time_limit_ref": "提到时间预算",
-    "leftover_harness": "提到 harness 名称",
-    "harness_path_in_args": "参数含 harness 运行目录",
-}
 INFRA_PATTERN = re.compile(
     r"ETIMEDOUT|ECONNRESET|ECONNREFUSED|connection (reset|refused|lost|aborted|closed)|"
     r"502 Bad Gateway|503 Service|504 Gateway|gateway time-?out|rate[ _-]?limit|429 Too Many|"
@@ -134,7 +107,7 @@ FLAG_LABELS = {
     "blind_retry": "报错后原样重试",
     "no_verify": "改完未验证",
     "test_edit": "改动测试/评分文件",
-    "harness_ref": "harness 痕迹",
+    "harness_ref": "用到 harness 组件",
     "infra_error": "基础设施报错",
     "redundancy": "重复/道歉",
     "lang_mix": "语言混杂",
@@ -330,7 +303,6 @@ def compute(run: Any) -> dict[str, Any]:
             flags[-1]["severity"] = "info"
 
     # Text-level patterns.
-    harness_hits: dict[str, list[int]] = {}
     filler_steps: list[int] = []
     paragraphs: dict[str, int] = {}
     duplicate_steps: list[int] = []
@@ -342,17 +314,6 @@ def compute(run: Any) -> dict[str, Any]:
         text, thinking = message.get("text") or "", message.get("thinking") or ""
         assistant_chars += len(text)
         thinking_chars += len(thinking)
-        for key, pattern in HARNESS_PATTERNS.items():
-            if pattern.search(text) or pattern.search(thinking):
-                harness_hits.setdefault(key, []).append(message["step"])
-        if message["tools"]:
-            arguments = "\n".join(
-                tool["input"] if isinstance(tool["input"], str) else json.dumps(tool["input"], ensure_ascii=False)
-                for tool in message["tools"]
-            )
-            for key, pattern in HARNESS_ARG_PATTERNS.items():
-                if pattern.search(arguments):
-                    harness_hits.setdefault(key, []).append(message["step"])
         if len(FILLER_PATTERN.findall(text + "\n" + thinking)) >= 1:
             filler_steps.append(message["step"])
         for paragraph in re.split(r"\n\s*\n", text):
@@ -371,13 +332,13 @@ def compute(run: Any) -> dict[str, Any]:
             scripts.append((message["step"], "cjk" if cjk >= latin else "latin"))
     values["assistant_chars"] = assistant_chars
     values["thinking_chars"] = thinking_chars
-    values["harness_refs"] = {key: len(steps) for key, steps in harness_hits.items()}
-    # "The instruction says …" usually means the task, not the harness; that distinction
-    # needs language understanding (see jev.py), so it is counted but does not flag.
-    specific = {k: v for k, v in harness_hits.items() if k != "instruction_ref"}
-    if specific:
-        steps = [step for group in specific.values() for step in group]
-        flag("harness_ref", steps, "、".join(f"{HARNESS_KEY_LABELS.get(k, k)} × {len(v)}" for k, v in specific.items()))
+    # Components the harness added and where the model's turns use them.
+    trace = harness.trace(run)
+    values["harness"] = trace
+    used = [c for c in trace["components"] if any(c.get(how) for how in harness.USES)]
+    if used:
+        steps = [step for c in used for how in harness.USES for step in c.get(how, [])]
+        flag("harness_ref", steps, harness.describe(used))
     values["filler_steps"] = len(filler_steps)
     values["duplicate_paragraphs"] = len(duplicate_steps)
     if len(duplicate_steps) >= 2 or len(filler_steps) >= 3:

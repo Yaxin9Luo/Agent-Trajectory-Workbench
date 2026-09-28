@@ -15,9 +15,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from trajectory_workbench import adapters as adapter_registry
-from trajectory_workbench import excerpt, explorer, exporter, practice, readiness, rewrite, search, signals
+from trajectory_workbench import excerpt, explorer, exporter, harness, practice, readiness, rewrite, search, signals
 from trajectory_workbench.insights import artifact_diff, compare_runs, error_aggregation
 from trajectory_workbench.jev import (
+    STEP_FLAG_LABELS,
     STEP_VERSION,
     TASK_VERSION,
     JevAnalyzer,
@@ -227,7 +228,7 @@ class WorkbenchService:
     def _row(self, run, row_id, source_id, collection, adapter_id, path, locator, fingerprint, stamp) -> dict[str, Any]:
         computed = signals.compute(run)
         tool_stats, error_templates = explorer.run_tool_stats(run)
-        ready = readiness.check(run)
+        ready = readiness.check(run, computed["values"]["harness"])
         metrics = run.metrics
         meta = run.meta or {}
         outcome = run.outcome or {}
@@ -316,7 +317,19 @@ class WorkbenchService:
                 "same_source": other.get("fingerprint") == row.get("fingerprint") and other.get("path") == row.get("path"),
             })
         pairs.sort(key=lambda item: item["run_id"])
-        return {"before": before, "after": after, "matched": len(pairs), "only_before": len(left) - len(pairs), "pairs": pairs[:limit]}
+        shown = pairs[:limit]
+        # A rewrite that also drops the harness prompt or tool declarations would have an
+        # empty inventory of its own: judge it against what the original had.
+        for pair in shown:
+            original = ((left[pair["run_id"]].get("signals") or {}).get("values") or {}).get("harness")
+            if not original:
+                continue
+            try:
+                _, run = self._load(pair["after"]["id"], cache=False)
+            except (FileNotFoundError, KeyError, OSError, ValueError):
+                continue
+            pair["after"]["residue"] = harness.used_steps(harness.trace(run, harness.merge(original, harness.inventory(run))))
+        return {"before": before, "after": after, "matched": len(pairs), "only_before": len(left) - len(pairs), "pairs": shown}
 
     def rewrite_diff(self, before_id: str, after_id: str) -> dict[str, Any]:
         row_a, run_a = self._load(before_id)
@@ -524,6 +537,8 @@ class WorkbenchService:
         payload["collection"] = row["collection"]
         payload["signals"] = row["signals"]
         payload["readiness"] = row.get("readiness") or readiness.check(run)
+        # Rows imported before harness.py have no trace in their signals; compute it here.
+        payload["harness"] = (row["signals"].get("values") or {}).get("harness") or harness.trace(run)
         # A later context segment continues this trajectory: end-of-run readings (no check
         # after the last edit, polish tail) do not apply here.
         payload["continues"] = "no_verify" in (row["signals"].get("suppressed") or [])
@@ -952,11 +967,12 @@ class WorkbenchService:
         episodes, _ = self._episodes(collection)
         result = practice.collection_stats(episodes, self.store.reviews(collection, self.reviewer))
         result["readiness"] = readiness_stats(self.store.all_trajectories(collection, columns=("id", "readiness")))
+        result["harness"] = harness_stats(self.store.all_trajectories(collection, columns=("id", "signals", "jev_summary")))
         result["jev"]["usage"] = self.store.jev_usage()
         return result
 
     def taxonomy(self) -> dict[str, Any]:
-        return {**practice.taxonomy(), "readiness_issues": readiness.ISSUE_LABELS}
+        return {**practice.taxonomy(), "readiness_issues": readiness.ISSUE_LABELS, "jev_flags": STEP_FLAG_LABELS}
 
     # -- Jev ----------------------------------------------------------------------------
 
@@ -1085,6 +1101,36 @@ def step_tokens(message: dict[str, Any]) -> dict[str, int]:
     if message["role"] in readiness.TRAINED_ROLES:
         return {"trained": own + calls, "context": results}
     return {"trained": 0, "context": own + calls + results}
+
+
+def harness_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Per trajectory (training sample): which harness components its trained turns use,
+    and how many Jev judged to depend on the harness."""
+    traced = [(row.get("signals") or {}).get("values", {}).get("harness") for row in rows]
+    traced = [trace for trace in traced if trace]
+    components: dict[tuple[str, str], dict[str, Any]] = {}
+    for trace in traced:
+        for item in trace["components"]:
+            entry = components.setdefault((item["kind"], item["name"]), {"kind": item["kind"], "name": item["name"], "present": 0, **{how: 0 for how in harness.USES}, "any": 0})
+            entry["present"] += 1
+            for how in harness.USES:
+                entry[how] += bool(item.get(how))
+            entry["any"] += any(item.get(how) for how in harness.USES)
+    analyzed = [row["jev_summary"] for row in rows if isinstance(row.get("jev_summary"), dict) and row["jev_summary"].get("version") == STEP_VERSION]
+    kinds: dict[str, int] = {}
+    for summary in analyzed:
+        for kind, count in (summary.get("harness_counts") or {}).items():
+            kinds[kind] = kinds.get(kind, 0) + bool(count)
+    return {
+        "trajectories": len(rows),
+        "traced": len(traced),
+        "with_components": sum(1 for trace in traced if trace["components"]),
+        "rule_hits": sum(1 for trace in traced if trace.get("steps")),
+        "jev_analyzed": len(analyzed),
+        "jev_hits": sum(1 for summary in analyzed if (summary.get("flag_counts") or {}).get("harness_reliance")),
+        "jev_kinds": kinds,
+        "components": sorted(components.values(), key=lambda item: (-item["any"], -item["present"]))[:60],
+    }
 
 
 def readiness_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:

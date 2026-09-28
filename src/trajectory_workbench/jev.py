@@ -34,15 +34,17 @@ from typesafe_sdk import (
     TypeSafeError,
 )
 
+from trajectory_workbench import harness
 from trajectory_workbench.signals import is_mutation
 
 
-STEP_VERSION = "steps-v7"
+STEP_VERSION = "steps-v8"
 TASK_VERSION = "task-v1"
 THRESHOLD = 0.5
 # Label suggestions are one Noul per taxonomy entry; a higher bar keeps loosely related
 # labels out (checked on hand-written notes, see tests/test_jev.py).
 SUGGEST_THRESHOLD = 0.6
+BASE_NAMES = {"claude-code": "Claude Code", "codex": "Codex CLI", "pi": "pi coding agent"}
 CONCURRENCY = int(os.environ.get("TRAJECTORY_WORKBENCH_JEV_CONCURRENCY", "8"))
 MODEL = os.environ.get("TRAJECTORY_WORKBENCH_JEV_MODEL") or None
 # Seconds per request; behind a proxy the SDK default (10 s) is too short.
@@ -101,13 +103,6 @@ STEP_NOULS: dict[str, dict[str, Any]] = {
         "true": "Declares the task done or the deliverable ready",
         "false": "Reports partial progress, next steps, a question or a failure",
     },
-    "harness_reference": {
-        "label": "引用 harness",
-        "needs": "text",
-        "instructions": "Does `step.reasoning` or `step.message` refer to the agent's own operating setup rather than to the user's task, such as its system prompt or harness instructions, a time budget imposed by the harness, or harness-specific tools, profiles, reviewers or review services by name?",
-        "true": "Mentions the harness setup itself, e.g. 'the system prompt says', 'within the hard time limit', a named harness reviewer or profile",
-        "false": "Only discusses the user's task and request, files, or general tools such as a shell, an editor or a browser",
-    },
     "filler": {
         "label": "空转/道歉",
         "needs": "text",
@@ -133,6 +128,18 @@ WORK_REASONS = {
     "support": "Supporting work rather than the deliverable itself: notes, plans, test or inspection scaffolding, ids for testing, cleaning up temporary files",
     "unclear": "`step` gives too little reasoning to tell why it makes this change",
 }
+# Does the step depend on what the harness added on top of the stock agent? Asked only
+# when the trajectory's harness added something (harness.py lists it in the state). A
+# Choice with named ways of depending caught all 16 dependent steps among 40 hand-read
+# Slides steps with none flagged wrongly; a single yes/no Noul missed 4 of them
+# (scratchpad experiment, 2026-09-27).
+HARNESS_RELIANCE = {
+    "none": "It works only on the user's task with the stock agent's own abilities (shell, reading, writing and editing files, search, web fetch, screenshots it takes itself, todo lists, subagents); it neither names nor relies on anything in `harness_added`",
+    "uses_component": "It decides to use, calls, or reasons about the output of something in `harness_added`: an extra tool or MCP server, a skill, a hook, or a harness-provided file",
+    "cites_instruction": "It justifies what it does by the harness's added instructions in `harness_added` (their rules, budgets, required formats or conventions) rather than by the user's task",
+}
+HARNESS_FLAG = "harness_reliance"
+STEP_FLAG_LABELS = {**{key: spec["label"] for key, spec in STEP_NOULS.items()}, "polish": "打磨", HARNESS_FLAG: "依赖 harness"}
 TURNING_KEYS = ("ignores_error", "misreads_observation", "thought_action_mismatch", "violates_constraint")
 
 FINAL_CLAIMS = {
@@ -210,7 +217,9 @@ def agent_steps(run: Any) -> list[dict[str, Any]]:
     return [m for m in run.messages if m["role"] in {"assistant", "tool"}]
 
 
-def step_state(run: Any, message: dict[str, Any], previous: dict[str, Any] | None) -> dict[str, Any]:
+def step_state(
+    run: Any, message: dict[str, Any], previous: dict[str, Any] | None, added: dict[str, Any] | None = None
+) -> dict[str, Any]:
     state: dict[str, Any] = {
         "about": DATA_NOTE,
         "task": clip((run.task or {}).get("instruction") or "", 1500),
@@ -246,6 +255,8 @@ def step_state(run: Any, message: dict[str, Any], previous: dict[str, Any] | Non
         ]
         if results:
             state["previous_observation"] = results
+    if added:
+        state["harness_added"] = added
     return state
 
 
@@ -276,6 +287,11 @@ def step_questions(state: dict[str, Any], changes_files: bool = False) -> dict[s
         questions["work"] = Choice(
             instructions="`step` changes files. Why does it make this change, judging by its reasoning, message and the observation it reacts to?",
             criteria=WORK_REASONS,
+        )
+    if state.get("harness_added") and (has_text or step["tool_calls"]):
+        questions["harness"] = Choice(
+            instructions="`harness_added` lists what this agent's harness added on top of the stock agent. Does `step` (its reasoning, message and tool calls) depend on any of it?",
+            criteria=HARNESS_RELIANCE,
         )
     for key, spec in STEP_NOULS.items():
         if available[spec["needs"]]:
@@ -339,6 +355,8 @@ class JevAnalyzer:
         requests = []
         previous = None
         index_by_step = {m["step"]: m for m in run.messages}
+        found = harness.inventory(run)
+        added = {"stock_agent": BASE_NAMES.get(found["base"], "a coding agent"), **harness.prompt_summary(found)} if found["components"] else None
         for message in steps:
             prior = previous
             if prior is None:
@@ -349,7 +367,7 @@ class JevAnalyzer:
                      if index_by_step.get(s, {}).get("tools")),
                     None,
                 )
-            state = step_state(run, message, prior)
+            state = step_state(run, message, prior, added)
             requests.append((state, step_questions(state, any(is_mutation(tool) for tool in message["tools"]))))
             previous = message if message["tools"] else None
         responses = self._run(self._ask_all(requests)) if requests else []
@@ -373,6 +391,10 @@ class JevAnalyzer:
             for key in STEP_NOULS:
                 if key in answers:
                     record["p"][key] = round(answers[key].noul, 3)
+            reliance = answers.get("harness")
+            if reliance is not None:
+                record["harness"] = reliance.choice
+                record["p"][HARNESS_FLAG] = round(1 - reliance.probabilities.get("none", 0.0), 3)
             work = answers.get("work")
             if work is not None:
                 record["work"] = work.choice
@@ -596,11 +618,14 @@ def summarize_steps(records: list[dict[str, Any]], offsets: dict[int, int | None
     for record in analyzed:
         phase = record.get("phase") or "other"
         phase_counts[phase] = phase_counts.get(phase, 0) + 1
-    flagged: dict[str, list[int]] = {key: [] for key in (*STEP_NOULS, "polish")}
+    flagged: dict[str, list[int]] = {key: [] for key in (*STEP_NOULS, "polish", HARNESS_FLAG)}
     work_counts: dict[str, int] = {}
+    harness_counts: dict[str, int] = {}
     for record in analyzed:
         if record.get("work"):
             work_counts[record["work"]] = work_counts.get(record["work"], 0) + 1
+        if record["p"].get(HARNESS_FLAG, 0) >= THRESHOLD and record.get("harness") in HARNESS_RELIANCE:
+            harness_counts[record["harness"]] = harness_counts.get(record["harness"], 0) + 1
     for record in analyzed:
         for key, probability in record["p"].items():
             if probability >= THRESHOLD:
@@ -637,6 +662,7 @@ def summarize_steps(records: list[dict[str, Any]], offsets: dict[int, int | None
         "first_problem_step": flagged["notices_problem"][0] if flagged["notices_problem"] else None,
         "claims_done_unverified": unverified_claims,
         "work_counts": work_counts,
+        "harness_counts": harness_counts,
         "polish_tail": polish_tail(analyzed, offsets or {}),
     }
 

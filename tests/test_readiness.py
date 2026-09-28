@@ -61,19 +61,23 @@ class ReadinessTest(unittest.TestCase):
         self.assertEqual(found["bad_arguments"]["steps"], [2])
         self.assertEqual(found["missing_images"]["steps"], [2])
 
-    def test_too_long_and_residue_by_location(self) -> None:
+    def test_too_long_and_harness_use_in_trained_turns(self) -> None:
         def build(b):
-            b.add_message("system", text="Harness note: IntentInspector reviews your work.")
+            b.add_message("system", text="You are Claude Code. Use mcp__review__inspect_work to have your work reviewed.")
             b.add_message("user", text="Build it")
-            b.add_message("assistant", text="I will ask CodeInspector to review. " + "x" * 400)
+            step = b.add_message("assistant", text="Asking the reviewer. " + "x" * 400)
+            b.add_tool_call(step, call_id="c1", name="mcp__review__inspect_work", tool_input={})
+            b.set_result("c1", text="looks fine")
+            b.add_message("assistant", text="Built it.")
 
         with mock.patch.object(readiness, "MAX_SEQ_LEN", 50):
             result = readiness.check(run_with(build))
         found = keys(result)
         self.assertIn("too_long", found)
+        # Only the model's own turn counts; the system prompt naming the tool is context.
         self.assertEqual(found["residue_in_trained"]["steps"], [3])
         self.assertEqual(found["residue_in_trained"]["severity"], "warn")
-        self.assertEqual(result["residue"]["context"], {"leftover_harness": [1]})
+        self.assertEqual(result["residue"]["trained"], {"calls": [3]})
 
 
 if __name__ == "__main__":

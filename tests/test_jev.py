@@ -65,6 +65,9 @@ class FakeClient:
             elif key == "work":
                 again = "again" in state["step"]["reasoning"]
                 answers[key] = choice("polish" if again else "required", {"polish": 0.7 if again else 0.1, "required": 0.3 if again else 0.9})
+            elif key == "harness":
+                uses = "deck_bench" in json.dumps(state["step"], ensure_ascii=False)
+                answers[key] = choice("uses_component" if uses else "none", {"none": 0.1, "uses_component": 0.9} if uses else {"none": 0.95, "uses_component": 0.05})
             elif key == "task_ambiguity":
                 answers[key] = SimpleNamespace(type="score", score=1.5, confidence=0.6, probabilities={0: 0.1, 1: 0.4, 2: 0.4, 3: 0.1})
             else:
@@ -130,6 +133,37 @@ class AnalyzerTest(unittest.TestCase):
         self.assertEqual(asked, ["Write the file.", "Edit again."])
         self.assertEqual(summary["work_counts"], {"required": 1, "polish": 1})
         self.assertEqual(summary["flagged"]["polish"], [4])
+
+    def test_harness_reliance_is_asked_only_when_the_harness_added_something(self) -> None:
+        client = FakeClient()
+        JevAnalyzer(client_factory=lambda: client).analyze_steps(sample_run())
+        self.assertFalse(any("harness" in questions for _, questions in client.calls))
+        self.assertFalse(any("harness_added" in state for state, _ in client.calls))
+
+        builder = TranscriptBuilder()
+        builder.add_message("system", text="You are Claude Code.\n\n# Environment\nLinux\n\n# Deck authoring\nWrite `artifact.html`.")
+        builder.add_message("user", text="Make a deck.")
+        first = builder.add_message("assistant", text="", thinking="Check the layout with deck_bench.")
+        builder.add_tool_call(first, call_id="a", name="mcp__deck_bench__deck_bench", tool_input={"action": "inspect_deck"})
+        builder.set_result("a", text="ok")
+        second = builder.add_message("assistant", text="", thinking="Fix the title size.")
+        builder.add_tool_call(second, call_id="b", name="Edit", tool_input={"file_path": "deck.html"})
+        builder.set_result("b", text="ok")
+        builder.add_message("assistant", text="The deck is done.")
+        run = finish_run(builder, adapter_id="t", source_path="/tmp/x", run_id="r", title=None, outcome=make_outcome(),
+                         available_tools=["Bash", "Read", "Edit", "mcp__deck_bench__deck_bench"])
+        client = FakeClient()
+        result = JevAnalyzer(client_factory=lambda: client).analyze_steps(run)
+        state = client.calls[0][0]
+        self.assertEqual(state["harness_added"]["stock_agent"], "Claude Code")
+        self.assertEqual(state["harness_added"]["mcp_servers"], [{"server": "deck_bench", "tools": ["deck_bench"]}])
+        self.assertEqual(state["harness_added"]["added_instruction_sections"][0]["section"], "Deck authoring")
+        self.assertTrue(all("harness" in questions for _, questions in client.calls))
+        summary = result["summary"]
+        self.assertEqual(summary["flagged"]["harness_reliance"], [3])
+        self.assertEqual(summary["harness_counts"], {"uses_component": 1})
+        self.assertEqual(result["steps"][0]["harness"], "uses_component")
+        self.assertEqual(result["steps"][1]["p"]["harness_reliance"], 0.05)
 
     def test_service_errors_are_recorded_per_step(self) -> None:
         client = FakeClient(fail_on="Run tests.")

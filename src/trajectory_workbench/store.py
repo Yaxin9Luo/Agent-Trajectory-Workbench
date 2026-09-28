@@ -511,6 +511,7 @@ class Store:
         episodes: bool = False,
         ready: bool | None = None,
         issue: str | None = None,
+        jev_flag: str | None = None,
         sort: str = "imported",
         offset: int = 0,
         limit: int | None = 100,
@@ -532,6 +533,17 @@ class Store:
         if issue:
             clauses.append("EXISTS (SELECT 1 FROM json_each(json_extract(t.readiness, '$.issues')) WHERE json_extract(json_each.value, '$.key') = ?)")
             params.append(issue)
+        if jev_flag:
+            # Steps Jev flagged; for an episode, in any member (segments, subagents).
+            flagged = "json_extract(m.jev_summary, '$.flag_counts.\"' || ? || '\"') > 0"
+            if episodes:
+                clauses.append(
+                    "EXISTS (SELECT 1 FROM trajectories m WHERE m.collection = t.collection "
+                    "AND COALESCE(m.group_key, m.id) = COALESCE(t.group_key, t.id) AND " + flagged + ")"
+                )
+            else:
+                clauses.append("EXISTS (SELECT 1 FROM trajectories m WHERE m.id = t.id AND " + flagged + ")")
+            params.append(jev_flag)
         if flag:
             if episodes:
                 # An episode matches when any member has the flag (subagent-only flags too).

@@ -76,7 +76,8 @@ as placeholders, each subagent linked to the call that launched it).
 
 **Library** — one row per episode (expandable to its members) with grader outcome, model,
 steps, tool errors, rule and Jev flags, training readiness and your review; filters for
-outcome, flag, label, reviewed, readiness issue and member role. Tick two rows to compare.
+outcome, rule flag, Jev flag (a step of any member flagged), label, reviewed, readiness issue
+and member role. Tick two rows to compare.
 "导出筛选结果" writes what the filters show as training data (see below).
 
 **Reader**
@@ -93,16 +94,16 @@ outcome, flag, label, reviewed, readiness issue and member role. Tick two rows t
 - keyboard: `j/k` steps, `J/K` model steps, `n/p` highlighted steps, `e/E` tool errors,
   `t` turning point, `a` annotate, `c` compact, `o` expand, `/` search, `[ ]` queue;
 - per-step annotations (with a label) and a Markdown excerpt of chosen steps;
-- **分析** tab: Jev step analysis, training readiness, other attempts at the same task,
-  tool catalog, MoH panels; **台账** tab: requirement, compaction, delegation, plan/todo
+- **分析** tab: Jev step analysis, what the harness added (below), training readiness,
+  other attempts at the same task, tool catalog, MoH panels; **台账** tab: requirement, compaction, delegation, plan/todo
   and hook-reminder ledgers; **阅读记录** tab: the review form.
 
 **Jev assistance** (runs when a trajectory is opened; ~2–4 s and ~$0.002–0.01 each)
 - one request per agent step with only that step and the tool results it reacts to:
   phase (explore / plan / implement / verify / debug / report), noticed a problem, ignored
   an error, misread a tool result (only asked when the full output is visible),
-  reasoning vs action mismatch, claimed completion, harness reference, filler, violated a
-  task constraint; for file-changing steps, why the files change (required / fix /
+  reasoning vs action mismatch, claimed completion, dependence on what the harness added
+  (below), filler, violated a task constraint; for file-changing steps, why the files change (required / fix /
   polish / support / unclear). Code aggregates the answers into flagged steps,
   turning-point candidates, "claimed done without verifying" and the **polish tail**
   (the closing stretch that only polishes, and the step where the deliverable was done);
@@ -111,6 +112,28 @@ outcome, flag, label, reviewed, readiness issue and member role. Tick two rows t
   with harness instructions, requirements lost in each compaction summary, whether the
   parent acts on each subagent report, whether the next step responds to hook reminders;
 - semantic step search and label / intervention / attribution suggestions for reviews.
+
+**Harness dependence** — a harness built on Claude Code, Codex or pi adds things the stock
+agent does not have: MCP servers, extra tools, skills, hooks, instruction sections, files it
+puts in the workspace for the agent. Turns that rely on them teach a model to need them, so
+these samples are candidates for a rewrite before training. Nothing is matched by harness
+name. For each trajectory:
+- code lists the added components: MCP servers and tools missing from the stock agent's
+  tool set (declared or called), skills loaded, hook messages, system-prompt sections the
+  stock prompt does not have (its level-1 headings are known), injected `CLAUDE.md` /
+  `AGENTS.md`, JSON-wrapped harness rules, and files named in those added instructions but
+  not in the user's task (e.g. `artifact.html`, guidance archives);
+- code marks the model's own turns (trained tokens) that call an added component, pass a
+  harness file in tool arguments or name a component in reasoning / message (rule flag
+  "用到 harness 组件"; readiness warning). This is a wide net: a harness's required output
+  file name shows up in nearly every sample;
+- Jev judges each step with that list as context: does the step depend on it — decide to use
+  or interpret an added component, or justify itself by the harness's added instructions,
+  budgets or conventions? (Jev flag "依赖 harness"; on 40 hand-read Slides steps it found all
+  16 dependent steps and flagged none of the others.)
+
+The reader's "Harness 增加的组件" panel lists the components with the steps that use each;
+the library's Jev filter finds the dependent samples.
 
 **Search** — full-text search over every indexed step of a collection (Chinese phrases
 work); results jump to the step with the terms highlighted.
@@ -128,8 +151,8 @@ diff of every changed message.
 - readiness per trajectory: over the sequence length (256K by default,
   `TRAJECTORY_WORKBENCH_MAX_SEQ_LEN`), ending cut off mid-task (not counted for segments
   that compaction continues), tool calls without results or results without calls, tool
-  arguments that are not JSON, missing image files, empty turns, harness residue inside
-  trained tokens (vs. only in context);
+  arguments that are not JSON, missing image files, empty turns, trained turns that use
+  components the harness added;
 - export of the filtered trajectories: `raw` copies original JSONL lines byte for byte,
   `chat` converts any format to OpenAI chat; with a data card (filters, composition,
   readiness, token quantiles, sha256, what was skipped). From the browser, exports go to
@@ -138,7 +161,9 @@ diff of every changed message.
   (plain text, or `{"content": …, "tool_calls": […]}`) becomes context + correction, and
   chosen = correction / rejected = what the agent did.
 
-**Stats** — outcomes per episode; training readiness; each rule signal's prevalence among
+**Stats** — outcomes per episode; training readiness; harness dependence (per component:
+samples whose trained turns call, pass or name it; samples Jev judged dependent); each rule
+signal's prevalence among
 passing vs failing episodes; Jev signal prevalence; grader × human confusion,
 disagreement rate, inflated-grader rate, blind-prediction accuracy; failure labels with
 how often they were decisive or severe; interventions (data, reward, eval, environment,

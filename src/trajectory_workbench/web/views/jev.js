@@ -8,11 +8,12 @@ const QUESTION_LABELS = {
   misreads_observation: ["误读工具返回", "对工具返回的描述与原文矛盾（只在返回完整可见时判断）"],
   thought_action_mismatch: ["思行不一", "推理说要做 A，工具调用做了 B"],
   claims_done: ["宣称完成", "对用户说任务已完成"],
-  harness_reference: ["引用 harness", "提到系统提示、时间预算、harness 专属工具/评审"],
+  harness_reliance: ["依赖 harness", "推理/回复/调用依赖 harness 额外加的东西：要用或解读 MCP/工具/Skill/Hook/harness 文件，或拿 harness 加的指令当理由"],
   filler: ["空转/道歉", "主要是道歉、自我安慰、重复确认"],
   polish: ["打磨", "改文件的步骤里，Jev 判为“对已能用的东西做可选美化”"],
   violates_constraint: ["违反题目约束", "动作违反任务里写明的要求"],
 };
+const RELIANCE_LABELS = { uses_component: "要用/解读 harness 组件", cites_instruction: "拿 harness 指令当理由" };
 const CLAIMS = { complete: "声称全部完成", partial: "声称部分完成", failed: "报告失败/受阻", asks_user: "以提问结束", none: "没有最终汇报" };
 
 export function renderJevPanel(slot, reader) {
@@ -73,6 +74,10 @@ export function renderJevPanel(slot, reader) {
     const work = Object.entries(stepSummary.work_counts || {}).sort((a, b) => b[1] - a[1]);
     if (work.length) {
       parts.push(h("p", { class: "hint" }, "改文件的原因：" + work.map(([key, count]) => (WORK_LABELS[key] || key) + " " + count).join(" · ")));
+    }
+    const reliance = Object.entries(stepSummary.harness_counts || {}).sort((a, b) => b[1] - a[1]);
+    if (reliance.length) {
+      parts.push(h("p", { class: "hint" }, "依赖 harness 的方式：" + reliance.map(([key, count]) => (RELIANCE_LABELS[key] || key) + " " + count + " 步").join(" · ")));
     }
 
     const task = jev.task || {};

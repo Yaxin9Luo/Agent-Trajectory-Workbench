@@ -471,9 +471,16 @@ class EpisodeTest(unittest.TestCase):
             labelled = service.list_trajectories(episodes=True, label="no_verify")["total"]
             subagent_flag = service.list_trajectories(episodes=True, flag="subagent_edit")["total"]
             sidebar = service.list_collections()["collections"][0]
+            # A Jev flag on any member (here the subagent) finds the episode.
+            subagent = next(i for i in service.list_trajectories()["items"] if "subagent" in i["run_id"])
+            service.store.set_jev_summary(subagent["id"], {"version": "x", "flag_counts": {"harness_reliance": 2}})
+            jev_episode = service.list_trajectories(episodes=True, jev_flag="harness_reliance")["total"]
+            jev_rows = [i["run_id"] for i in service.list_trajectories(jev_flag="harness_reliance")["items"]]
+            jev_other = service.list_trajectories(episodes=True, jev_flag="filler")["total"]
         self.assertIsNotNone(listed["reviewed_at"])
         self.assertEqual(listed["review_labels"], ["no_verify"])
         self.assertEqual((unread, labelled, subagent_flag), (0, 1, 1))
+        self.assertEqual((jev_episode, jev_rows, jev_other), (1, ["r_k3_attempt_01_subagent_cd"], 0))
         self.assertEqual((sidebar["episodes"], sidebar["reviewed"]), (1, 1))
 
     def test_opening_an_older_database_regroups_its_episodes(self) -> None:

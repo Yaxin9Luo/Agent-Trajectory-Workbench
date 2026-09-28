@@ -27,8 +27,8 @@ def sample() -> dict:
             {"role": "assistant", "content": "Reading the data.", "tool_calls": [
                 {"id": "r1", "type": "function", "function": {"name": "Read", "arguments": {"file_path": RUN_DIR + "/data.csv"}}}]},
             {"role": "tool", "tool_call_id": "r1", "content": "a,b\n1,2"},
-            {"role": "assistant", "content": "As the harness requires, I will ask CodeInspector.", "tool_calls": [
-                {"id": "w1", "type": "function", "function": {"name": "Write", "arguments": {"file_path": "chart.html", "content": "<svg/>"}}}]},
+            {"role": "assistant", "content": "Asking chart_review to check it.", "tool_calls": [
+                {"id": "w1", "type": "function", "function": {"name": "mcp__chart_review__chart_review", "arguments": {"file": "chart.html"}}}]},
             {"role": "tool", "tool_call_id": "w1", "content": "written"},
             {"role": "assistant", "content": "Done: chart.html draws the data."},
         ],
@@ -43,6 +43,7 @@ class RewriteDiffTest(unittest.TestCase):
             rewritten = copy.deepcopy(original)
             rewritten["messages"][1]["tool_calls"][0]["function"]["arguments"]["file_path"] = "data.csv"
             rewritten["messages"][3]["content"] = "Writing the chart."
+            rewritten["messages"][3]["tool_calls"][0]["function"] = {"name": "Write", "arguments": {"file_path": "chart.html", "content": "<svg/>"}}
             write_jsonl(base / "orig" / "dialog.jsonl", [original])
             write_jsonl(base / "new" / "dialog.jsonl", [rewritten])
             service = WorkbenchService(Store(base / "index.db"), analyzer=NoJev(), reviewer="t")
@@ -53,7 +54,7 @@ class RewriteDiffTest(unittest.TestCase):
             diff = service.rewrite_diff(pair["before"]["id"], pair["after"]["id"])
 
         self.assertEqual(pairs["matched"], 1)
-        # The rewrite removed the run-directory path and the harness talk from trained tokens.
+        # The rewrite replaced the added MCP reviewer with a stock tool in trained tokens.
         self.assertGreater(pair["before"]["residue"], 0)
         self.assertEqual(pair["after"]["residue"], 0)
         self.assertEqual(diff["counts"]["changed"], 2)
@@ -61,6 +62,39 @@ class RewriteDiffTest(unittest.TestCase):
         self.assertIn("call 1 · Read", changed[0]["fields"])
         text = changed[1]["fields"]["text"]
         self.assertEqual([line["op"] for line in text], ["-", "+"])
+
+
+class RewriteAgainstOriginalTest(unittest.TestCase):
+    def test_dropping_the_harness_prompt_does_not_hide_leftover_use(self) -> None:
+        stock = "You are Claude Code, Anthropic's official CLI.\n\n# Environment\nLinux\n"
+        added = "\n# Review rules\nLog every finding to `review/notes.md`.\n"
+        turn = {"role": "assistant", "content": "Per the review rules I log to review/notes.md.", "tool_calls": [
+            {"id": "w1", "type": "function", "function": {"name": "Write", "arguments": {"file_path": "review/notes.md", "content": "ok"}}}]}
+        original = {"id": "t-2_k3_attempt_01", "messages": [
+            {"role": "system", "content": stock + added},
+            {"role": "user", "content": "Review the module"},
+            {"role": "assistant", "content": "Inspecting.", "tool_calls": [
+                {"id": "m1", "type": "function", "function": {"name": "mcp__review__inspect", "arguments": {}}}]},
+            {"role": "tool", "tool_call_id": "m1", "content": "2 findings"},
+            turn,
+            {"role": "tool", "tool_call_id": "w1", "content": "written"},
+            {"role": "assistant", "content": "Done."},
+        ]}
+        rewritten = copy.deepcopy(original)
+        rewritten["messages"][0]["content"] = stock
+        del rewritten["messages"][2:4]
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            write_jsonl(base / "orig" / "dialog.jsonl", [original])
+            write_jsonl(base / "new" / "dialog.jsonl", [rewritten])
+            service = WorkbenchService(Store(base / "index.db"), analyzer=NoJev(), reviewer="t")
+            service.import_path(str(base / "orig" / "dialog.jsonl"), "orig")
+            service.import_path(str(base / "new" / "dialog.jsonl"), "new")
+            [pair] = service.rewrite_pairs("orig", "new")["pairs"]
+        self.assertEqual(pair["before"]["residue"], 2)
+        # On its own the rewrite has no added components; against the original it still
+        # writes the harness's file.
+        self.assertEqual(pair["after"]["residue"], 1)
 
 
 class CorrectionTest(unittest.TestCase):
@@ -82,8 +116,8 @@ class CorrectionTest(unittest.TestCase):
         self.assertEqual([m["role"] for m in sample_sft["messages"]], ["user", "assistant", "tool", "assistant"])
         self.assertEqual(sample_sft["messages"][-1]["content"], "Writing the chart, then I will open it to check it renders.")
         self.assertEqual(pair["prompt"], sample_sft["messages"][:-1])
-        self.assertIn("harness requires", pair["rejected"][0]["content"])
-        self.assertEqual(pair["rejected"][0]["tool_calls"][0]["function"]["name"], "Write")
+        self.assertIn("chart_review", pair["rejected"][0]["content"])
+        self.assertEqual(pair["rejected"][0]["tool_calls"][0]["function"]["name"], "mcp__chart_review__chart_review")
         self.assertEqual(pair["meta"]["labels"], ["overclaim"])
 
 
