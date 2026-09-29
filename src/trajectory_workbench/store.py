@@ -840,9 +840,14 @@ class Store:
             )
             self._db.commit()
 
-    def jev_usage(self) -> dict[str, Any]:
+    def jev_usage(self, collection: str | None = None) -> dict[str, Any]:
+        """Jev requests stored and their input tokens (all versions), for one collection
+        or the whole index."""
+        sql = "SELECT COUNT(*), COALESCE(SUM(j.input_tokens), 0) FROM jev_results j"
+        params: list[Any] = []
+        if collection:
+            sql += " JOIN trajectories t ON t.id = j.trajectory_id WHERE t.collection = ?"
+            params.append(collection)
         with self._lock:
-            row = self._db.execute(
-                "SELECT COUNT(*), COALESCE(SUM(input_tokens), 0) FROM jev_results"
-            ).fetchone()
+            row = self._db.execute(sql, params).fetchone()
         return {"results": row[0], "input_tokens": row[1]}

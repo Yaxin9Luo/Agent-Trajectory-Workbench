@@ -27,12 +27,12 @@ export async function renderStats(root, ctx, still) {
   const kpis = h(
     "section",
     { class: "metrics panel" },
-    kpi("轨迹", formatCount(stats.total), Object.entries(stats.outcomes).map(([key, count]) => (OUTCOME_LABELS[key] || key) + " " + count).join(" · ")),
+    kpi("Episode", formatCount(stats.total), Object.entries(stats.outcomes).map(([key, count]) => (OUTCOME_LABELS[key] || key) + " " + count).join(" · ")),
     kpi("已读", String(reviews.count), "占 " + percent(stats.total ? reviews.count / stats.total : null, 1)),
     kpi("评分器 vs 人工分歧", percent(reviews.disagreement_rate), reviews.comparable + " 条可比", reviews.disagreement_rate > 0.1 ? "alert" : ""),
     kpi("评分虚高率", percent(reviews.inflated_rate), "评分器判过 → 人工判不过：" + reviews.inflated, reviews.inflated ? "alert" : ""),
     kpi("盲判准确率", percent(reviews.blind_accuracy), reviews.blind_total + " 次盲判"),
-    kpi("Jev 已分析", formatCount(stats.jev.analyzed), formatCount(stats.jev.usage.input_tokens) + " tokens ≈ $" + (stats.jev.usage.input_tokens * 0.042 / 1e6).toFixed(3))
+    kpi("Jev 已分析", formatCount(stats.jev.analyzed) + " 个 episode", (ctx.collection ? "本集合" : "全部集合") + "累计 " + formatCount(stats.jev.usage.input_tokens) + " tokens ≈ $" + (stats.jev.usage.input_tokens * 0.042 / 1e6).toFixed(2) + "（含旧版本）")
   );
 
   const signalTable = h(

@@ -477,10 +477,13 @@ class EpisodeTest(unittest.TestCase):
             jev_episode = service.list_trajectories(episodes=True, jev_flag="harness_reliance")["total"]
             jev_rows = [i["run_id"] for i in service.list_trajectories(jev_flag="harness_reliance")["items"]]
             jev_other = service.list_trajectories(episodes=True, jev_flag="filler")["total"]
+            service.store.put_jev(subagent["id"], "steps", "x", None, "m", 1000, {})
+            usage_here, usage_elsewhere = service.store.jev_usage("R")["input_tokens"], service.store.jev_usage("other")["input_tokens"]
         self.assertIsNotNone(listed["reviewed_at"])
         self.assertEqual(listed["review_labels"], ["no_verify"])
         self.assertEqual((unread, labelled, subagent_flag), (0, 1, 1))
         self.assertEqual((jev_episode, jev_rows, jev_other), (1, ["r_k3_attempt_01_subagent_cd"], 0))
+        self.assertEqual((usage_here, usage_elsewhere), (1000, 0))
         self.assertEqual((sidebar["episodes"], sidebar["reviewed"]), (1, 1))
 
     def test_opening_an_older_database_regroups_its_episodes(self) -> None:
