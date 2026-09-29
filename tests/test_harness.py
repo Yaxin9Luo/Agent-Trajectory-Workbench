@@ -130,6 +130,18 @@ class InventoryTest(unittest.TestCase):
         self.assertEqual([c["kind"] for c in harness.inventory(run)["components"]], ["instruction"])
         self.assertNotIn("harness_ref", {f["key"] for f in signals.compute(run)["flags"]})
 
+    def test_harness_defined_subagent_types(self) -> None:
+        run = build(STOCK_PROMPT, [
+            ("Asking the slide reviewer.", "", [("Agent", {"subagent_type": "slide-reviewer", "prompt": "review"})]),
+            ("", "", [("Agent", {"subagent_type": "general-purpose", "prompt": "search"}), ("Task", {"subagent_type": "Explore", "prompt": "find"})]),
+            ("The slide-reviewer found two issues.", "", []),
+        ], available=["Agent", "Task", "Bash", "Read"])
+        trace = harness.trace(run)
+        self.assertEqual([(c["kind"], c["name"]) for c in trace["components"]], [("subagent", "slide-reviewer")])
+        self.assertEqual(by_name(trace)["slide-reviewer"]["calls"], [3])
+        self.assertEqual(by_name(trace)["slide-reviewer"]["mentions"], [5])
+        self.assertEqual(harness.prompt_summary(harness.inventory(run)), {"custom_subagent_types": ["slide-reviewer"]})
+
     def test_base_agent_from_tool_set(self) -> None:
         codex = build("", [("", "", [("apply_patch", {"input": "*** Begin Patch"}), ("exec_command", {"cmd": "ls"})])])
         self.assertEqual(harness.base_agent(codex), "codex")

@@ -145,7 +145,7 @@ export async function renderStats(root, ctx, still) {
   );
 
   const hx = stats.harness;
-  const KIND = { mcp: "MCP", tool: "工具", skill: "Skill", hook: "Hook", instruction: "指令", file: "harness 文件" };
+  const KIND = { mcp: "MCP", tool: "工具", skill: "Skill", subagent: "子代理类型", hook: "Hook", instruction: "指令", file: "harness 文件" };
   const RELIANCE = { uses_component: "要用/解读组件", cites_instruction: "拿 harness 指令当理由", unclear: "方式不明确" };
   const unanalyzed = hx.trajectories - hx.jev_analyzed;
   const harnessCard = h(

@@ -64,6 +64,10 @@ STOCK_SECTIONS: dict[str, set[str]] = {
     },
 }
 SKILL_TOOLS = {"skill", "use_skill", "load_skill"}
+# Subagent types a fresh Claude Code install ships with; any other `subagent_type` passed
+# to its Agent/Task tool was defined by the harness.
+SPAWN_TOOLS = {"agent", "task"}
+STOCK_SUBAGENTS = {"general-purpose", "explore", "plan", "statusline-setup", "claude-code-guide", "output-style-setup"}
 SKILL_FIELDS = ("skill", "name", "command", "skill_name")
 # Instruction files the agent loads (Claude Code quotes their path, Codex a heading or tag).
 INSTRUCTION_FILE = re.compile(r"Contents of (\S+?(?:CLAUDE|AGENTS)(?:\.local)?\.md)|# (AGENTS\.md) instructions|<(user_instructions)>")
@@ -77,7 +81,7 @@ FILE_EXTENSIONS = (
 )
 # Directories (`tests/`) are left out: their names are everyday words.
 PATH_LIKE = re.compile(r"^(?:[\w.-]+/)*[\w-][\w.-]*\.(?:" + FILE_EXTENSIONS + r")$", re.IGNORECASE)
-KIND_LABELS = {"mcp": "MCP", "tool": "工具", "skill": "Skill", "hook": "Hook", "instruction": "指令", "file": "harness 文件"}
+KIND_LABELS = {"mcp": "MCP", "tool": "工具", "skill": "Skill", "subagent": "子代理类型", "hook": "Hook", "instruction": "指令", "file": "harness 文件"}
 USES = ("calls", "files", "mentions", "outputs")
 USE_LABELS = {"calls": "调用", "files": "参数里", "mentions": "提到", "outputs": "用到其产出"}
 # Files named in an added tool's result that the agent had not used before the call.
@@ -212,6 +216,9 @@ def inventory(run: Any) -> dict[str, Any]:
             skill = _skill_name(tool.get("input"))
             if skill:
                 add("skill", skill, tools=[tool.get("raw_name") or tool["name"]])
+        kind = _custom_subagent(tool, base)
+        if kind:
+            add("subagent", kind, tools=[tool.get("raw_name") or tool["name"]])
     for message in run.messages:
         if message.get("layer") == "hook":
             match = HOOK_NAME.search(message.get("text") or "")
@@ -239,13 +246,29 @@ def _skill_name(value: Any) -> str | None:
     return None
 
 
+def _custom_subagent(tool: dict[str, Any], base: str | None) -> str | None:
+    """The harness-defined subagent type a Claude Code Agent/Task call launches, if any."""
+    if base != "claude-code" or _key(tool["name"]) not in SPAWN_TOOLS:
+        return None
+    value = tool.get("input")
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    kind = value.get("subagent_type") if isinstance(value, dict) else None
+    if isinstance(kind, str) and kind.strip() and kind.strip().casefold() not in STOCK_SUBAGENTS:
+        return kind.strip()[:60]
+    return None
+
+
 def _terms(component: dict[str, Any], basenames: set[str]) -> set[str]:
     """Names by which a component can be referred to in text (none for instructions:
     citing a rule is judged semantically, not by matching its heading)."""
     kind, name = component["kind"], component["name"]
     if kind == "mcp":
         terms = {name} | set(component.get("tools", [])) | {tool.split("__")[-1] for tool in component.get("tools", [])}
-    elif kind in {"tool", "skill"}:
+    elif kind in {"tool", "skill", "subagent"}:
         terms = {name.split("__")[-1], name}
     elif kind == "file":
         terms = {name}
@@ -290,9 +313,10 @@ def trace(run: Any, found: dict[str, Any] | None = None) -> dict[str, Any]:
     by_tool: dict[str, dict[str, Any]] = {}
     for component in components:
         for tool in component.get("tools", []):
-            if component["kind"] != "skill":
+            if component["kind"] not in {"skill", "subagent"}:
                 by_tool[tool] = component
     skills = {c["name"]: c for c in components if c["kind"] == "skill"}
+    subagents = {c["name"]: c for c in components if c["kind"] == "subagent"}
     names = [c["name"].rsplit("/", 1)[-1] for c in components if c["kind"] == "file"]
     unique = {name for name in names if names.count(name) == 1}
     prose_terms: dict[str, list[dict[str, Any]]] = {}
@@ -326,6 +350,8 @@ def trace(run: Any, found: dict[str, Any] | None = None) -> dict[str, Any]:
                 skill = _skill_name(tool.get("input"))
                 if skill in skills:
                     note(skills[skill], "calls", step)
+            elif _custom_subagent(tool, found["base"]) in subagents:
+                note(subagents[_custom_subagent(tool, found["base"])], "calls", step)
             arguments = _json_text(tool.get("input"))
             if file_terms:
                 for component in _found(arguments, file_terms):
@@ -426,7 +452,7 @@ def prompt_summary(found: dict[str, Any], limit: int = 40) -> dict[str, Any]:
             entry = component["name"]
         grouped.setdefault(kind, []).append(entry)
     labels = {
-        "mcp": "mcp_servers", "tool": "extra_tools", "skill": "skills", "hook": "hooks",
+        "mcp": "mcp_servers", "tool": "extra_tools", "skill": "skills", "subagent": "custom_subagent_types", "hook": "hooks",
         "instruction": "added_instruction_sections", "file": "harness_provided_files",
     }
     return {labels[kind]: items[:limit] for kind, items in grouped.items()}
