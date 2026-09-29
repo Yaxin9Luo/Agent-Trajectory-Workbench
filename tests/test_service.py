@@ -486,6 +486,32 @@ class EpisodeTest(unittest.TestCase):
         self.assertEqual((usage_here, usage_elsewhere), (1000, 0))
         self.assertEqual((sidebar["episodes"], sidebar["reviewed"]), (1, 1))
 
+    def test_export_jev_writes_one_line_per_trajectory(self) -> None:
+        from trajectory_workbench.jev import STEP_VERSION
+
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            write_jsonl(base / "dialog.jsonl", [
+                edit_sample("a_k3_attempt_01", task="Build it", calls=[("R", "Read", {"file_path": "a"})]),
+                edit_sample("b_k3_attempt_01", task="Other", calls=[]),
+            ])
+            service = service_for(base)
+            service.import_path(str(base / "dialog.jsonl"), "S")
+            first = next(i for i in service.list_trajectories()["items"] if i["run_id"] == "a_k3_attempt_01")
+            row = service.store.get_trajectory(first["id"])
+            service.store.put_jev(first["id"], "steps", STEP_VERSION, row["fingerprint"], "m", 5, {"steps": [{"step": 3, "p": {}}]})
+            result = service.export_jev("S", base / "out" / "jev.jsonl", "http://host:8416/")
+            lines = [json.loads(line) for line in (base / "out" / "jev.jsonl").read_text().splitlines()]
+            with self.assertRaises(ValueError):
+                service.export_jev("S", base / "out" / "jev.jsonl")
+        self.assertEqual((result["written"], result["without_jev"]), (2, 1))
+        self.assertEqual([line["sample_id"] for line in lines], ["a_k3_attempt_01", "b_k3_attempt_01"])
+        self.assertEqual(set(lines[0]), {"sample_id", "trajectory_id", "source_path", "source_row_0based", "source_line_1based", "trajectory_url", "jev", "step_index", "timeline"})
+        self.assertEqual((lines[1]["source_row_0based"], lines[1]["source_line_1based"]), (1, 2))
+        self.assertEqual(lines[0]["trajectory_url"], "http://host:8416/#/t/" + first["id"])
+        self.assertEqual(lines[0]["jev"]["steps"], {"steps": [{"step": 3, "p": {}}]})
+        self.assertIsNone(lines[1]["jev"])
+
     def test_opening_an_older_database_regroups_its_episodes(self) -> None:
         import sqlite3
 
