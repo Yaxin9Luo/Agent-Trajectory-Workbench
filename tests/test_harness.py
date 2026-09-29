@@ -121,8 +121,24 @@ class InventoryTest(unittest.TestCase):
         run.model_prompt = {"system": {"text": STOCK_PROMPT + ADDED}}
         components = by_name(harness.trace(run))
         self.assertEqual(components["Deck authoring"]["kind"], "instruction")
-        # No system message here: user is step 1, the model's turn step 2.
-        self.assertEqual(components["artifact.html"]["files"], [2])
+        # The agent writes artifact.html itself: an output naming convention, not traced.
+        self.assertEqual(components["artifact.html"], {"kind": "file", "name": "artifact.html", "agent_output": True})
+        # Jev's evidence keeps it (conventions=True). No system message: the model's turn is step 2.
+        self.assertEqual(by_name(harness.trace(run, conventions=True))["artifact.html"]["files"], [2])
+
+    def test_a_file_the_instructions_ask_the_agent_to_write_is_its_own_output(self) -> None:
+        # A later context segment only reads the deck written in an earlier one.
+        run = build(STOCK_PROMPT + ADDED, [
+            ("Checking the deck from the previous segment.", "", [("Bash", {"command": "grep -c deck-slide artifact.html"})]),
+            ("", "", [("Bash", {"command": "unzip -l inputs/guidance/bundle.zip"})]),
+        ], available=["Bash", "Read"])
+        components = by_name(harness.trace(run))
+        self.assertTrue(components["artifact.html"]["agent_output"])
+        self.assertTrue(components["slides.html"]["agent_output"])
+        self.assertNotIn("files", components["artifact.html"])
+        # Guidance the harness put in the workspace is not an output.
+        self.assertEqual(components["inputs/guidance/bundle.zip"]["files"], [4])
+        self.assertNotIn("agent_output", components["inputs/guidance/bundle.zip"])
 
     def test_directories_are_not_harness_files(self) -> None:
         rules = STOCK_PROMPT + "\n# Project rules\nPut new tests in `tests/` and scripts in `tools/`.\n"
@@ -166,6 +182,7 @@ class TraceTest(unittest.TestCase):
                 ("", "The deck_bench contact sheet shows slide 3 overflows.", [("Edit", {"file_path": "artifact.html", "old_string": "a", "new_string": "b"})]),
                 ("Done: the deck is in artifact.html.", "", []),
                 ("", "location.hash updates on arrow keys.", []),
+                ("", "", [("Bash", {"command": "unzip -l inputs/guidance/bundle.zip"})]),
             ],
             available=["Bash", "Read", "Edit", "Write", MCP],
         )
@@ -175,11 +192,14 @@ class TraceTest(unittest.TestCase):
         components = by_name(trace)
         self.assertEqual(components["deck_bench"]["calls"], [4])
         self.assertEqual(components["deck_bench"]["mentions"], [5])
-        self.assertEqual(components["artifact.html"]["files"], [5])
-        self.assertEqual(components["artifact.html"]["mentions"], [6])
+        # The guidance archive the harness put in the workspace counts; the deliverable the
+        # agent edits under the harness's file name does not.
+        self.assertEqual(components["inputs/guidance/bundle.zip"]["files"], [8])
+        self.assertTrue(components["artifact.html"]["agent_output"])
+        self.assertNotIn("mentions", components["artifact.html"])
         # A JS property that the instructions mention is not a file, and step 3 reads a task file.
         self.assertNotIn("location.hash", components)
-        self.assertEqual(trace["steps"], {"calls": [4], "files": [5], "mentions": [5, 6]})
+        self.assertEqual(trace["steps"], {"calls": [4], "files": [8], "mentions": [5]})
 
     def test_absolute_paths_count_and_shared_basenames_do_not(self) -> None:
         added = ADDED + "\nCards: `inputs/a/bundle.zip`, `inputs/b/bundle.zip`.\n"
@@ -190,7 +210,8 @@ class TraceTest(unittest.TestCase):
             ("Checked with mcp__deck_bench__deck_bench.", "", []),
         ], available=["Bash", "Write", MCP])
         components = by_name(harness.trace(run))
-        self.assertEqual(components["artifact.html"]["files"], [3])
+        self.assertTrue(components["artifact.html"]["agent_output"])
+        self.assertEqual(by_name(harness.trace(run, conventions=True))["artifact.html"]["files"], [3])
         # "bundle.zip" alone could be either archive, so it names neither.
         self.assertEqual(components["inputs/b/bundle.zip"], {"kind": "file", "name": "inputs/b/bundle.zip", "files": [4]})
         self.assertNotIn("mentions", components["inputs/a/bundle.zip"])
@@ -217,18 +238,18 @@ class TraceTest(unittest.TestCase):
         self.assertEqual(bench["calls"], [4])
         # The contact sheet the tool saved is its product; artifact.html was the agent's own file.
         self.assertEqual(bench["outputs"], [5, 6])
-        self.assertEqual(by_name(trace)["artifact.html"]["files"], [3])
+        self.assertTrue(by_name(trace)["artifact.html"]["agent_output"])
         self.assertEqual(harness.step_evidence(trace)[5], ["mcp `deck_bench`: the step uses a file it produced earlier"])
 
     def test_flag_and_readiness_use_the_trace(self) -> None:
         run = self.run_steps()
         computed = signals.compute(run)
         flag = next(f for f in computed["flags"] if f["key"] == "harness_ref")
-        self.assertEqual(flag["steps"], [4, 5, 6])
+        self.assertEqual(flag["steps"], [4, 5, 8])
         self.assertIn("MCP deck_bench", flag["detail"])
         result = readiness.check(run, computed["values"]["harness"])
         issue = next(i for i in result["issues"] if i["key"] == "residue_in_trained")
-        self.assertEqual(issue["steps"], [4, 5, 6])
+        self.assertEqual(issue["steps"], [4, 5, 8])
         self.assertEqual(issue["severity"], "warn")
         self.assertEqual(result["residue"]["trained"]["calls"], [4])
 

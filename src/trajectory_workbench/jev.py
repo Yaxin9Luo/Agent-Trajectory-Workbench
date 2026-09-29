@@ -387,7 +387,7 @@ class JevAnalyzer:
         index_by_step = {m["step"]: m for m in run.messages}
         found = harness.inventory(run)
         added = {"stock_agent": BASE_NAMES.get(found["base"], "a coding agent"), **harness.prompt_summary(found)} if found["components"] else None
-        evidence = harness.step_evidence(harness.trace(run, found)) if added else {}
+        evidence = harness.step_evidence(harness.trace(run, found, conventions=True)) if added else {}
         for message in steps:
             prior = previous
             if prior is None:

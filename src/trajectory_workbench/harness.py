@@ -172,18 +172,29 @@ def added_instructions(run: Any, base: str | None) -> list[dict[str, Any]]:
     return found
 
 
-def _files(instructions: list[dict[str, Any]], task_text: str) -> list[str]:
-    """Workspace files the harness instructions name that the user's task does not."""
+# "Write the deck to `artifact.html`", "exports the same bytes as `slides.html`": the
+# instructions name a file the agent is to produce.
+OUTPUT_CUE = re.compile(r"\b(?:write|writes|written|save|saves|export|exports|exported|output|deliver|produce)\b[^.`\n]{0,80}$", re.IGNORECASE)
+
+
+def _files(instructions: list[dict[str, Any]], task_text: str) -> tuple[list[str], set[str]]:
+    """Workspace files the harness instructions name that the user's task does not, and
+    which of them the instructions name as something the agent writes."""
     files: list[str] = []
+    outputs: set[str] = set()
     for item in instructions:
-        for match in BACKTICK.finditer(item["text"]):
+        text = item["text"]
+        for match in BACKTICK.finditer(text):
             token = match.group(1).strip("'\".,;:")
-            if "://" in token or not PATH_LIKE.match(token) or token in task_text or token in files:
+            if "://" in token or not PATH_LIKE.match(token) or token in task_text:
                 continue
             if re.fullmatch(r"[\d.x]+", token):
                 continue
-            files.append(token)
-    return files
+            if OUTPUT_CUE.search(text[max(0, match.start() - 100) : match.start()]):
+                outputs.add(token)
+            if token not in files:
+                files.append(token)
+    return files, outputs
 
 
 def inventory(run: Any) -> dict[str, Any]:
@@ -228,8 +239,9 @@ def inventory(run: Any) -> dict[str, Any]:
         add("instruction", item["name"], topics=item["topics"])
     task_text = (run.task or {}).get("instruction") or ""
     request, _ = split_task(task_text)
-    for path in _files(instructions, request or task_text):
-        add("file", path)
+    files, outputs = _files(instructions, request or task_text)
+    for path in files:
+        add("file", path, **({"output_name": True} if path in outputs else {}))
     return {"base": base, "components": list(components.values())}
 
 
@@ -302,14 +314,41 @@ def _json_text(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
 
 
-def trace(run: Any, found: dict[str, Any] | None = None) -> dict[str, Any]:
+def written_files(run: Any, names: list[str]) -> set[str]:
+    """Harness-named files the agent itself writes, edits or redirects output to: output
+    naming conventions (e.g. `artifact.html`), not material the harness put there."""
+    from trajectory_workbench.signals import is_mutation, touched_paths  # signals imports this module
+
+    written: set[str] = set()
+    for tool in run.tools:
+        if not is_mutation(tool):
+            continue
+        for path in touched_paths(tool):
+            for name in names:
+                if path == name or path.endswith("/" + name):
+                    written.add(name)
+    return written
+
+
+def trace(run: Any, found: dict[str, Any] | None = None, *, conventions: bool = False) -> dict[str, Any]:
     """Where the model's own turns (trained tokens) use the added components.
 
     Returns {base, components: [{kind, name, calls, files, mentions}], steps:
-    {how: [step, …]}} with step lists per component and per way of use.
+    {how: [step, …]}} with step lists per component and per way of use. Files the harness
+    names but the agent writes itself (output naming conventions) are listed with
+    `agent_output` and not traced, unless `conventions` is set (the Jev evidence keeps
+    them so its inputs stay as they were validated).
     """
     found = found or inventory(run)
     components = found["components"]
+    if not conventions:
+        # The agent's own output under a name the harness chose: it writes the file here, or
+        # the instructions name it as the thing to write (a later segment only reads it).
+        own = written_files(run, [c["name"] for c in components if c["kind"] == "file"])
+        components = [
+            ({**c, "agent_output": True} if c["kind"] == "file" and (c["name"] in own or c.get("output_name")) else c)
+            for c in components
+        ]
     by_tool: dict[str, dict[str, Any]] = {}
     for component in components:
         for tool in component.get("tools", []):
@@ -322,6 +361,8 @@ def trace(run: Any, found: dict[str, Any] | None = None) -> dict[str, Any]:
     prose_terms: dict[str, list[dict[str, Any]]] = {}
     file_terms: dict[str, list[dict[str, Any]]] = {}
     for component in components:
+        if component.get("agent_output"):
+            continue
         for term in _terms(component, unique):
             prose_terms.setdefault(term, []).append(component)
             if component["kind"] == "file":
@@ -384,7 +425,7 @@ def trace(run: Any, found: dict[str, Any] | None = None) -> dict[str, Any]:
         used = uses.get((component["kind"], component["name"]), {})
         for how, steps in used.items():
             totals[how].update(steps)
-        rows.append({**{k: v for k, v in component.items() if k in {"kind", "name", "topics", "tools"}}, **used})
+        rows.append({**{k: v for k, v in component.items() if k in {"kind", "name", "topics", "tools", "agent_output"}}, **used})
     return {
         "base": found["base"],
         "components": rows,
