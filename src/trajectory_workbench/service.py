@@ -972,7 +972,7 @@ class WorkbenchService:
         result = practice.collection_stats(episodes, self.store.reviews(collection, self.reviewer))
         result["readiness"] = readiness_stats(self.store.all_trajectories(collection, columns=("id", "readiness")))
         result["harness"] = harness_stats(self.store.all_trajectories(collection, columns=("id", "signals", "jev_summary")))
-        result["jev"]["usage"] = self.store.jev_usage()
+        result["jev"]["usage"] = self.store.jev_usage(collection)
         return result
 
     def taxonomy(self) -> dict[str, Any]:
