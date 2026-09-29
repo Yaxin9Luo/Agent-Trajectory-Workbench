@@ -5,7 +5,6 @@ import json
 import sys
 from pathlib import Path
 
-from trajectory_workbench.jev import STEP_VERSION
 from trajectory_workbench.registry import DEFAULT_REGISTRY_PATH
 from trajectory_workbench.server import create_server
 from trajectory_workbench.service import WorkbenchService
@@ -80,20 +79,13 @@ def main() -> None:
         result = service.import_path(args.path, args.collection, progress, index_text=not args.no_text_index)
         print(file=sys.stderr)
     elif args.command == "analyze":
-        rows = [
-            row for row in service.store.all_trajectories(args.collection)
-            # Same selection as the server's batch: never analyzed, or by an older version.
-            if not row.get("jev_summary") or row["jev_summary"].get("version") != STEP_VERSION
-        ][: args.limit]
-        failed = []
-        for index, row in enumerate(rows, start=1):
-            print(f"\r[{index}/{len(rows)}] {row['title'][:80]:<80}", end="", file=sys.stderr, flush=True)
-            try:
-                service.analyze(row["id"])
-            except Exception as error:
-                failed.append({"id": row["id"], "error": str(error)[:200]})
+        rows = service.batch_rows(args.collection, args.limit)
+
+        def progress(done=None, message=None, **_):
+            print(f"\r[{done}/{len(rows)}] {(message or '')[:80]:<80}", end="", file=sys.stderr, flush=True)
+
+        result = service.run_batch(rows, progress)
         print(file=sys.stderr)
-        result = {"analyzed": len(rows) - len(failed), "failed": failed}
     elif args.command == "export":
         filters = {
             "collection": args.collection,

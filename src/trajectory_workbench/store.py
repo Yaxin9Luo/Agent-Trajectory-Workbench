@@ -11,6 +11,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable
@@ -187,13 +188,32 @@ def trajectory_id(path: Path, locator_key: str | None) -> str:
 
 
 class Store:
+    @contextmanager
+    def _locked(self):
+        """The connection lock; on any error inside, roll back the open transaction.
+
+        sqlite3 begins a transaction before a write and leaves it open when the write
+        fails (e.g. "database is locked" while another process writes). Left open, it
+        keeps an old snapshot, and every later write on this connection fails the same
+        way: a batch then paid for Jev on every trajectory and stored none (2026-09-29).
+        """
+        with self._lock:
+            try:
+                yield
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.rollback()
+                raise
+
     def __init__(self, path: Path = DEFAULT_DB_PATH) -> None:
         self.path = path.expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._db = sqlite3.connect(str(self.path), check_same_thread=False)
+        # Several processes share the index (the server, a CLI batch); wait for a writer
+        # rather than failing after the default 5 s.
+        self._db = sqlite3.connect(str(self.path), check_same_thread=False, timeout=30)
         self._db.row_factory = sqlite3.Row
-        with self._lock:
+        with self._locked():
             self._db.execute("PRAGMA journal_mode=WAL")
             existing = {row[1] for row in self._db.execute("PRAGMA table_info(trajectories)")}
             migrated = False
@@ -220,18 +240,18 @@ class Store:
                 self.rebuild_episodes(name)
 
     def close(self) -> None:
-        with self._lock:
+        with self._locked():
             self._db.close()
 
     # -- sources / trajectories -----------------------------------------------------
 
     def source_collection(self, source_id: str) -> str | None:
-        with self._lock:
+        with self._locked():
             row = self._db.execute("SELECT collection FROM sources WHERE id = ?", (source_id,)).fetchone()
         return row[0] if row else None
 
     def upsert_source(self, source_id: str, path: str, adapter_id: str, collection: str) -> None:
-        with self._lock:
+        with self._locked():
             self._db.execute(
                 "INSERT INTO sources (id, path, adapter_id, collection, registered_at) "
                 "VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
@@ -246,7 +266,7 @@ class Store:
         Reviews and Jev results live in their own tables keyed by trajectory id, so they
         survive; the Jev summary column is carried over when the source is unchanged.
         """
-        with self._lock:
+        with self._locked():
             previous = {
                 row[0]: row[1]
                 for row in self._db.execute(
@@ -296,11 +316,11 @@ class Store:
         Signals that only make sense at the end of a trajectory (no check after the last
         edit) are suppressed on segments that a later segment continues.
         """
-        with self._lock:  # held throughout, so concurrent imports cannot interleave
+        with self._locked():  # held throughout, so concurrent imports cannot interleave
             self._rebuild_episodes(collection)
 
     def _rebuild_episodes(self, collection: str) -> None:
-        with self._lock:
+        with self._locked():
             rows = [
                 dict(row)
                 for row in self._db.execute(
@@ -383,7 +403,7 @@ class Store:
                     None if not row["readiness"] else int(row["readiness"]["ready"]),
                     row["id"],
                 ))
-        with self._lock:
+        with self._locked():
             self._db.executemany(
                 "UPDATE trajectories SET group_key = ?, episode_head = ?, episode = ?, flags = ?, signals = ?, "
                 "readiness = ?, ready = ? WHERE id = ?",
@@ -398,7 +418,7 @@ class Store:
         entries (bodies already tokenizer-ready), in one transaction."""
         if not trajectory_ids or not self.text_search:
             return
-        with self._lock:
+        with self._locked():
             ids = list(trajectory_ids)
             for start in range(0, len(ids), 500):
                 chunk = ids[start : start + 500]
@@ -417,7 +437,7 @@ class Store:
         died after indexing text but before writing its rows)."""
         if not self.text_search:
             return 0
-        with self._lock:
+        with self._locked():
             orphans = [row[0] for row in self._db.execute(
                 "SELECT r.rowid FROM step_rows r LEFT JOIN trajectories t ON t.id = r.trajectory_id WHERE t.id IS NULL"
             )]
@@ -443,14 +463,14 @@ class Store:
             params.append(collection)
         sql += " ORDER BY score LIMIT ?"
         params.append(limit)
-        with self._lock:
+        with self._locked():
             rows = self._db.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
     def text_indexed(self, trajectory_ids: list[str]) -> set[str]:
         if not trajectory_ids:
             return set()
-        with self._lock:
+        with self._locked():
             rows = self._db.execute(
                 f"SELECT DISTINCT trajectory_id FROM step_rows WHERE trajectory_id IN ({', '.join('?' for _ in trajectory_ids)})",
                 trajectory_ids,
@@ -460,7 +480,7 @@ class Store:
     def remove_collection(self, collection: str) -> dict[str, int]:
         """Delete a collection from the index: its trajectory rows, sources, text index,
         Jev results, annotations and reviews. Source files are never touched."""
-        with self._lock:
+        with self._locked():
             ids = [row[0] for row in self._db.execute("SELECT id FROM trajectories WHERE collection = ?", (collection,))]
             counts = {"trajectories": len(ids), "reviews": 0, "annotations": 0, "jev_results": 0, "text_rows": 0}
             for start in range(0, len(ids), 500):
@@ -482,14 +502,14 @@ class Store:
         return counts
 
     def list_sources(self) -> list[dict[str, Any]]:
-        with self._lock:
+        with self._locked():
             rows = self._db.execute("SELECT * FROM sources ORDER BY registered_at").fetchall()
         return [
             {**dict(row), "available": Path(row["path"]).exists()} for row in rows
         ]
 
     def get_trajectory(self, trajectory_id: str) -> dict[str, Any] | None:
-        with self._lock:
+        with self._locked():
             row = self._db.execute(
                 "SELECT * FROM trajectories WHERE id = ?", (trajectory_id,)
             ).fetchone()
@@ -608,7 +628,7 @@ class Store:
                 "FROM reviews WHERE reviewer = ?) r ON r.trajectory_id = t.id " + where
             )
             select = "t.*, r.human_status AS review_status, r.labels AS review_labels, r.reviewed_at AS reviewed_at"
-        with self._lock:
+        with self._locked():
             total = self._db.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
             if limit is None:
                 rows = self._db.execute(f"SELECT {select} {base} ORDER BY {order}", params).fetchall()
@@ -641,12 +661,12 @@ class Store:
             clauses.append("episode_head = 1")
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        with self._lock:
+        with self._locked():
             rows = self._db.execute(sql, params).fetchall()
         return [self._decode(row) for row in rows]
 
     def collections(self) -> list[dict[str, Any]]:
-        with self._lock:
+        with self._locked():
             rows = self._db.execute(
                 # Outcome counts are per episode (head rows); `total` counts every trajectory.
                 "SELECT collection, COUNT(*) AS total, SUM(episode_head) AS episodes, "
@@ -667,7 +687,7 @@ class Store:
         return [{**dict(row), "reviewed": reviewed.get(row["collection"], 0)} for row in rows]
 
     def set_jev_summary(self, trajectory_id: str, summary: dict[str, Any]) -> None:
-        with self._lock:
+        with self._locked():
             self._db.execute(
                 "UPDATE trajectories SET jev_summary = ? WHERE id = ?",
                 (json.dumps(summary, ensure_ascii=False), trajectory_id),
@@ -690,7 +710,7 @@ class Store:
     # -- reviews ----------------------------------------------------------------------
 
     def get_review(self, trajectory_id: str, reviewer: str) -> dict[str, Any] | None:
-        with self._lock:
+        with self._locked():
             row = self._db.execute(
                 "SELECT * FROM reviews WHERE trajectory_id = ? AND reviewer = ?",
                 (trajectory_id, reviewer),
@@ -711,7 +731,7 @@ class Store:
         merged["label_details"] = json.dumps(merged.get("label_details") or {}, ensure_ascii=False)
         merged["blind"] = int(bool(merged.get("blind")))
         stamp = now()
-        with self._lock:
+        with self._locked():
             self._db.execute(
                 "INSERT INTO reviews (trajectory_id, reviewer, "
                 + ", ".join(REVIEW_FIELDS)
@@ -726,7 +746,7 @@ class Store:
         return self.get_review(trajectory_id, reviewer) or {}
 
     def delete_review(self, trajectory_id: str, reviewer: str) -> None:
-        with self._lock:
+        with self._locked():
             self._db.execute(
                 "DELETE FROM reviews WHERE trajectory_id = ? AND reviewer = ?", (trajectory_id, reviewer)
             )
@@ -749,7 +769,7 @@ class Store:
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY r.updated_at"
-        with self._lock:
+        with self._locked():
             rows = self._db.execute(sql, params).fetchall()
         result = []
         for row in rows:
@@ -769,13 +789,13 @@ class Store:
         if reviewer:
             sql += " AND reviewer = ?"
             params.append(reviewer)
-        with self._lock:
+        with self._locked():
             rows = self._db.execute(sql + " ORDER BY step, id", params).fetchall()
         return [dict(row) for row in rows]
 
     def save_annotation(self, trajectory_id: str, reviewer: str, step: int, note: str, label: str | None, annotation_id: int | None = None) -> dict[str, Any]:
         stamp = now()
-        with self._lock:
+        with self._locked():
             if annotation_id is None:
                 cursor = self._db.execute(
                     "INSERT INTO annotations (trajectory_id, step, reviewer, note, label, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -794,7 +814,7 @@ class Store:
         return dict(row)
 
     def delete_annotation(self, trajectory_id: str, reviewer: str, annotation_id: int) -> None:
-        with self._lock:
+        with self._locked():
             cursor = self._db.execute(
                 "DELETE FROM annotations WHERE id = ? AND trajectory_id = ? AND reviewer = ?", (annotation_id, trajectory_id, reviewer)
             )
@@ -805,7 +825,7 @@ class Store:
     # -- jev cache --------------------------------------------------------------------
 
     def get_jev(self, trajectory_id: str, kind: str, version: str, fingerprint: str | None) -> dict[str, Any] | None:
-        with self._lock:
+        with self._locked():
             row = self._db.execute(
                 "SELECT * FROM jev_results WHERE trajectory_id = ? AND kind = ?",
                 (trajectory_id, kind),
@@ -824,7 +844,7 @@ class Store:
         input_tokens: int | None,
         result: dict[str, Any],
     ) -> None:
-        with self._lock:
+        with self._locked():
             self._db.execute(
                 "INSERT OR REPLACE INTO jev_results VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
@@ -848,6 +868,6 @@ class Store:
         if collection:
             sql += " JOIN trajectories t ON t.id = j.trajectory_id WHERE t.collection = ?"
             params.append(collection)
-        with self._lock:
+        with self._locked():
             row = self._db.execute(sql, params).fetchone()
         return {"results": row[0], "input_tokens": row[1]}
