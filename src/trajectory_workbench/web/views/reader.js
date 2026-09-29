@@ -954,7 +954,7 @@ function renderReadiness(run, ctx, reader) {
 }
 
 const USE_LABELS = { calls: "调用", files: "参数里", mentions: "提到", outputs: "用到其产出" };
-const KIND_LABELS = { mcp: "MCP", tool: "工具", skill: "Skill", hook: "Hook", instruction: "指令", file: "harness 文件" };
+const KIND_LABELS = { mcp: "MCP", tool: "工具", skill: "Skill", subagent: "子代理类型", hook: "Hook", instruction: "指令", file: "harness 文件" };
 const BASE_LABELS = { "claude-code": "Claude Code", codex: "Codex", pi: "pi" };
 
 /** What the harness added on top of the stock agent, and which trained steps use it. */
