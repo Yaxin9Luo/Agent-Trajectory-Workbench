@@ -147,33 +147,29 @@ export async function renderStats(root, ctx, still) {
   const hx = stats.harness;
   const KIND = { mcp: "MCP", tool: "工具", skill: "Skill", hook: "Hook", instruction: "指令", file: "harness 文件" };
   const RELIANCE = { uses_component: "要用/解读组件", cites_instruction: "拿 harness 指令当理由", unclear: "方式不明确" };
+  const unanalyzed = hx.trajectories - hx.jev_analyzed;
   const harnessCard = h(
     "section",
     { class: "panel stat-card" },
-    h(
-      "div",
-      { class: "panel-head" },
-      h(
-        "div",
-        {},
-        h("h2", {}, "依赖 harness 的样本"),
-        h(
-          "p",
-          {},
-          hx.traced
-            ? "按条（训练样本）统计：" + hx.with_components + " / " + hx.traced + " 条的 harness 相对原生 agent 加了东西；规则（调用/参数/字面提到）命中 " + hx.rule_hits + " 条"
-            : "还没有组件记录（重新索引后生成）"
-        )
-      )
-    ),
+    h("div", { class: "panel-head" }, h("div", {}, h("h2", {}, "依赖 harness 的样本"), h("p", {}, "按条（训练样本）统计，共 " + formatCount(hx.trajectories) + " 条"))),
+    h("h3", {}, "Jev 语义判断：推理是否依赖 harness"),
     hx.jev_analyzed
       ? h(
           "p",
-          { class: "hint" },
-          h("a", { href: "#/library?view=all&jev_flag=harness_reliance" }, "Jev 判为推理依赖 harness：" + hx.jev_hits + " / " + hx.jev_analyzed + " 条已分析"),
-          Object.keys(hx.jev_kinds).length ? "（" + Object.entries(hx.jev_kinds).map(([key, count]) => (RELIANCE[key] || key) + " " + count + " 条").join(" · ") + "）" : ""
+          {},
+          h("a", { href: "#/library?view=all&jev_flag=harness_reliance" }, "依赖 " + formatCount(hx.jev_hits) + " 条 / 已分析 " + formatCount(hx.jev_analyzed) + " 条"),
+          Object.keys(hx.jev_kinds).length ? "（" + Object.entries(hx.jev_kinds).map(([key, count]) => (RELIANCE[key] || key) + " " + count + " 条").join(" · ") + "）" : "",
+          unanalyzed > 0 ? h("span", { class: "muted" }, " · 还有 " + formatCount(unanalyzed) + " 条没跑 Jev") : null
         )
-      : h("p", { class: "hint" }, "还没有 Jev 结果：在轨迹库「对未分析的轨迹跑 Jev」后，这里给出语义判断的依赖条数"),
+      : h("p", { class: "muted" }, "还没跑 Jev（共 " + formatCount(hx.trajectories) + " 条未分析）。在轨迹库「对未分析的轨迹跑 Jev」后，这里给出语义判断的条数。"),
+    h("h3", {}, "规则统计：模型回合里用到了哪些 harness 组件"),
+    h(
+      "p",
+      { class: "hint" },
+      hx.traced
+        ? "导入时由代码统计，不是 Jev 的判断，覆盖全部 " + formatCount(hx.traced) + " 条：调用组件、在参数里用 harness 文件、字面提到、或用到组件的产出。只要出现就算，包括顺带提一句的；推理是否真的依赖看上面的 Jev。"
+        : "还没有组件记录（重新索引后生成）"
+    ),
     hx.components.length
       ? h(
           "div",
