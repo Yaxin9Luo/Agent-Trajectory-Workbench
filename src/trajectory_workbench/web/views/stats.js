@@ -176,7 +176,7 @@ export async function renderStats(root, ctx, still) {
           { class: "bar-list" },
           hx.components.slice(0, 12).map((item) =>
             barRow(
-              KIND[item.kind] + " · " + item.name + (item.any ? "（调用 " + item.calls + " · 参数 " + item.files + " · 提到 " + item.mentions + (item.outputs ? " · 用到其产出 " + item.outputs : "") + "）" : "（有但没用到）"),
+              KIND[item.kind] + " · " + item.name + (item.any ? "（调用 " + item.calls + " · 参数 " + item.files + " · 提到 " + item.mentions + (item.outputs ? " · 用到其产出 " + item.outputs : "") + "）" : item.agent_output ? "（" + item.agent_output + " 条里是 agent 自己写的产物：命名约定，不算依赖）" : "（有但没用到）"),
               item.any,
               hx.traced,
               "#/library?view=all&flag=harness_ref"

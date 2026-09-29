@@ -1116,8 +1116,9 @@ def harness_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     components: dict[tuple[str, str], dict[str, Any]] = {}
     for trace in traced:
         for item in trace["components"]:
-            entry = components.setdefault((item["kind"], item["name"]), {"kind": item["kind"], "name": item["name"], "present": 0, **{how: 0 for how in harness.USES}, "any": 0})
+            entry = components.setdefault((item["kind"], item["name"]), {"kind": item["kind"], "name": item["name"], "present": 0, **{how: 0 for how in harness.USES}, "any": 0, "agent_output": 0})
             entry["present"] += 1
+            entry["agent_output"] += bool(item.get("agent_output"))
             for how in harness.USES:
                 entry[how] += bool(item.get(how))
             entry["any"] += any(item.get(how) for how in harness.USES)

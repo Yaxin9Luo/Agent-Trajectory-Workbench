@@ -1009,7 +1009,7 @@ function renderHarness(run, reader) {
                       h("button", { type: "button", class: "link-button", onclick: () => reader.highlight(KIND_LABELS[item.kind] + " · " + item.name, steps) }, "高亮"),
                       ...steps.slice(0, 8).map((step) => h("button", { type: "button", class: "step-link", onclick: () => reader.jump(step) }, "#" + step)),
                     ]
-                  : h("span", { class: "muted" }, item.kind === "instruction" ? "引用指令要靠语义判断（Jev）" : "模型回合里没有用到"),
+                  : h("span", { class: "muted" }, item.kind === "instruction" ? "引用指令要靠语义判断（Jev）" : item.agent_output ? "agent 自己写的产物文件：harness 只规定了名字（命名约定），不算依赖" : "模型回合里没有用到"),
                 item.topics?.length ? h("small", { class: "muted", style: { display: "block" } }, item.topics.join(" · ")) : null
               )
             );
