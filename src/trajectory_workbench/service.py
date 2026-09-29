@@ -948,6 +948,42 @@ class WorkbenchService:
             raise ValueError("no steps: annotate some steps or give a range such as 3-9, 15")
         return excerpt.markdown_excerpt(run, row, chosen, notes, review, hide_outcome=hide_outcome)
 
+    def export_jev(self, collection: str, out: Path, url_base: str = "") -> dict[str, Any]:
+        """One JSONL line per trajectory of a collection: where it is in its source file,
+        its Jev step scan, task check and summary, and the step index and timeline the
+        reader uses (the layout of the rewrite project's jev.random20.jsonl)."""
+        rows = sorted(
+            self.store.all_trajectories(collection),
+            key=lambda row: (row["path"], int((row.get("locator") or {}).get("row", 0))),
+        )
+        if not rows:
+            raise ValueError(f"no trajectories in collection {collection!r}")
+        out = out.expanduser()
+        if out.exists():
+            raise ValueError(f"{out} already exists")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        written = missing = 0
+        with out.open("w", encoding="utf-8") as handle:
+            for row in rows:
+                trajectory = self.get_trajectory(row["id"])
+                jev = self._cached_jev(row["id"], row)
+                missing += jev is None or jev.get("steps") is None
+                position = int((row.get("locator") or {}).get("row", 0))
+                record = {
+                    "sample_id": row.get("run_id"),
+                    "trajectory_id": row["id"],
+                    "source_path": row["path"],
+                    "source_row_0based": position,
+                    "source_line_1based": position + 1,
+                    "trajectory_url": f"{url_base.rstrip('/')}/#/t/{row['id']}" if url_base else None,
+                    "jev": jev,
+                    "step_index": trajectory["step_index"],
+                    "timeline": trajectory.get("timeline"),
+                }
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+                written += 1
+        return {"path": str(out), "written": written, "without_jev": missing, "jev_version": STEP_VERSION}
+
     def export_reviews(self, collection: str | None = None) -> str:
         lines = []
         for review in self.store.reviews(collection):

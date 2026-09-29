@@ -45,6 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
     analyze = commands.add_parser("analyze", help="run the Jev step scan over trajectories not yet analyzed")
     analyze.add_argument("--collection")
     analyze.add_argument("--limit", type=int, default=100)
+    jev_out = commands.add_parser("export-jev", help="write a collection's Jev results as JSONL, one line per trajectory")
+    jev_out.add_argument("collection")
+    jev_out.add_argument("out", type=Path, help="new .jsonl file")
+    jev_out.add_argument("--url-base", default="", help="workbench URL for trajectory links, e.g. http://host:8416")
     export = commands.add_parser("export-reviews", help="write reviews as JSONL to stdout")
     export.add_argument("--collection")
     data = commands.add_parser("export", help="write matching trajectories as training JSONL plus a data card")
@@ -105,6 +109,8 @@ def main() -> None:
             result = {"would_remove": {"trajectories": total, "reviews": reviews}, "hint": "add --yes to delete"}
         else:
             result = {"removed": service.store.remove_collection(args.collection)}
+    elif args.command == "export-jev":
+        result = service.export_jev(args.collection, args.out, args.url_base)
     elif args.command == "export-reviews":
         sys.stdout.write(service.export_reviews(args.collection))
         return
