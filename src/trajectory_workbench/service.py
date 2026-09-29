@@ -67,6 +67,10 @@ def default_reviewer() -> str:
         return getpass.getuser() or "me"
 
 
+# Consecutive failures that stop a Jev batch (see run_batch).
+BATCH_STOP_AFTER = 3
+
+
 class Jobs:
     """Background jobs (imports, batch Jev analysis) with pollable progress."""
 
@@ -1010,24 +1014,52 @@ class WorkbenchService:
         self.store.set_jev_summary(trajectory_id, summary)
         return {"steps": steps, "task": task, "summary": summary}
 
-    def start_batch_analysis(self, collection: str | None, limit: int, include_done: bool = False) -> dict[str, Any]:
-        rows = [
+    def batch_rows(self, collection: str | None, limit: int, include_done: bool = False) -> list[dict[str, Any]]:
+        """Trajectories a Jev batch would analyze: never analyzed, or by an older version."""
+        return [
             row for row in self.store.all_trajectories(collection)
             if include_done or not row.get("jev_summary") or row["jev_summary"].get("version") != STEP_VERSION
         ][: max(1, limit)]
 
+    def run_batch(self, rows: list[dict[str, Any]], progress: Callable[..., None] | None = None) -> dict[str, Any]:
+        """Analyze rows one by one; stop after BATCH_STOP_AFTER failures in a row.
+
+        A failure after the Jev call (e.g. the result cannot be stored) still costs the
+        requests, so a run of failures means something is broken: stop rather than keep
+        paying for results that are thrown away.
+        """
+        failed: list[dict[str, Any]] = []
+        tokens = processed = streak = 0
+        stopped = None
+        for row in rows:
+            processed += 1
+            try:
+                result = self.analyze(row["id"])
+                tokens += (result["steps"] or {}).get("input_tokens") or 0
+                streak = 0
+            except Exception as error:
+                failed.append({"id": row["id"], "error": str(error)[:200]})
+                streak += 1
+                if streak >= BATCH_STOP_AFTER:
+                    stopped = f"stopped after {streak} failures in a row: {str(error)[:200]}"
+            if progress:
+                progress(done=processed, message=f"{row['title'][:60]}")
+            if stopped:
+                break
+        return {
+            "analyzed": processed - len(failed),
+            "failed": failed,
+            "input_tokens": tokens,
+            "not_run": len(rows) - processed,
+            "stopped": stopped,
+        }
+
+    def start_batch_analysis(self, collection: str | None, limit: int, include_done: bool = False) -> dict[str, Any]:
+        rows = self.batch_rows(collection, limit, include_done)
+
         def work(progress: Callable[..., None]) -> dict[str, Any]:
             progress(done=0, total=len(rows))
-            failed = []
-            tokens = 0
-            for index, row in enumerate(rows, start=1):
-                try:
-                    result = self.analyze(row["id"])
-                    tokens += (result["steps"] or {}).get("input_tokens") or 0
-                except Exception as error:
-                    failed.append({"id": row["id"], "error": str(error)[:200]})
-                progress(done=index, message=f"{row['title'][:60]}")
-            return {"analyzed": len(rows) - len(failed), "failed": failed, "input_tokens": tokens}
+            return self.run_batch(rows, progress)
 
         return self.jobs.start("jev", work)
 

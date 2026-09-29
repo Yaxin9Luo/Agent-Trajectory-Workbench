@@ -143,7 +143,8 @@ export async function renderLibrary(root, ctx, params, still) {
       if (finished.status === "failed") throw new Error(finished.error);
       status.textContent =
         "Jev 完成 " + finished.result.analyzed + " 条 · " + formatCount(finished.result.input_tokens) + " tokens" +
-        (finished.result.failed.length ? " · 失败 " + finished.result.failed.length : "");
+        (finished.result.failed.length ? " · 失败 " + finished.result.failed.length : "") +
+        (finished.result.stopped ? " · 连续失败已停止，" + finished.result.not_run + " 条没跑：" + finished.result.failed[finished.result.failed.length - 1].error : "");
       if (still()) load();
     } catch (error) {
       status.textContent = "Jev 失败：" + error.message;
