@@ -572,6 +572,276 @@ class WorkbenchService:
                 syncs.append({"direction": direction, "from": up_row["run_id"], "to": down_row["run_id"], **check})
         return segments, syncs
 
+    # -- rewrite batch overview, change queue, export ------------------------------------
+
+    def _rewrite_summaries(self, batch: dict[str, Any], progress: Callable[..., None] | None = None) -> dict[str, dict[str, Any]]:
+        """One compact summary per record (changes, residue, sync, status), recomputed only
+        when a source changed. Verdicts are not in it: gates are worked out per request."""
+        after = self.store.find_runs(batch["rewritten_collection"])
+        counts = self.store.rewrite_annotation_counts(batch["id"])
+        before = self.store.find_runs(batch["original_collection"], None) if after or counts else {}
+        stored = self.store.rewrite_summaries(batch["id"])
+        samples = sorted(set(after) | set(counts))
+        out: dict[str, dict[str, Any]] = {}
+        for done, sample in enumerate(samples, start=1):
+            a, b = after.get(sample), before.get(sample)
+            key = hashlib.sha256(json.dumps([(a or {}).get("fingerprint"), (b or {}).get("fingerprint"), (counts.get(sample) or {}).get("status")]).encode()).hexdigest()[:16]
+            cached = stored.get(sample)
+            if cached and cached[0] == key:
+                out[sample] = cached[1]
+                continue
+            try:
+                summary = _summarize_record(self.rewrite_record(batch["id"], sample))
+            except (FileNotFoundError, OSError, ValueError) as error:
+                summary = {"error": str(error)[:300], "changes": [], "residue": [], "syncs": [], "status": None, "missing": None}
+            row = a or b or {}
+            summary.update(group_key=row.get("group_key"), segment=row.get("segment"), role=row.get("group_role") or "main")
+            self.store.put_rewrite_summary(batch["id"], sample, key, summary)
+            out[sample] = summary
+            if progress:
+                progress(done=done, total=len(samples), message=sample)
+        return out
+
+    def _rewrite_gates(self, batch: dict[str, Any], summaries: dict[str, dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+        verdicts: dict[str, dict[str, Any]] = {}
+        for item in self.store.rewrite_verdicts(batch["id"], reviewer=self.reviewer):
+            verdicts.setdefault(item["sample_id"], {})[item["key"]] = item
+        warnings = (batch.get("settings") or {}).get("gate_warnings") or []
+        gates = {
+            sample: rewrite_review.gate(
+                status=summary["status"] or ({"value": "missing"} if summary.get("missing") else None),
+                changes=summary["changes"], residue_items=summary["residue"], syncs=summary["syncs"],
+                verdicts=verdicts.get(sample, {}), warnings=warnings,
+            )
+            for sample, summary in summaries.items()
+        }
+        return gates, verdicts
+
+    def rewrite_overview(self, batch_id: str) -> dict[str, Any]:
+        """Batch-wide funnel, distributions, verdict statistics and the record table."""
+        batch = self._rewrite_batch(batch_id)
+        summaries = self._rewrite_summaries(batch)
+        gates, verdicts = self._rewrite_gates(batch, summaries)
+        gate_warnings = set((batch.get("settings") or {}).get("gate_warnings") or [])
+        funnel: dict[str, int] = {key: 0 for key in (
+            "records", "rewritten", "missing_rewritten", "missing_original", "changes", "annotated", "unrecorded", "explained",
+            "tool_changes", "step_changes", "warned", "residue_items", "residue_records", "sync_broken", "judged", "errors", "misses",
+        )}
+        statuses: dict[str, int] = {}
+        decisions = {"include": 0, "review": 0, "exclude": 0}
+        groups: dict[str, dict[str, dict[str, int]]] = {"category": {}, "warning": {}, "ref": {}, "kind": {}, "source": {}}
+        error_types: dict[str, int] = {}
+        warning_records: dict[str, set[str]] = {}
+        records = []
+
+        def tally(group: str, name: str, verdict: str | None) -> None:
+            bucket = groups[group].setdefault(name, {"total": 0, "judged": 0, "correct": 0, "error": 0, "uncertain": 0})
+            bucket["total"] += 1
+            if verdict:
+                bucket["judged"] += 1
+                bucket[verdict] += 1
+
+        for sample, summary in summaries.items():
+            marks = verdicts.get(sample, {})
+            gate = gates[sample]
+            decisions[gate["decision"]] += 1
+            funnel["records"] += 1
+            funnel["rewritten" if not summary.get("missing") else "missing_rewritten"] += 1
+            funnel["missing_original"] += bool(summary.get("original_missing"))
+            status = (summary.get("status") or {}).get("value") or "—"
+            statuses[status] = statuses.get(status, 0) + 1
+            funnel["residue_items"] += len(summary["residue"])
+            funnel["residue_records"] += bool(summary["residue"])
+            funnel["sync_broken"] += any(sync.get("ok") is False for sync in summary["syncs"])
+            funnel["misses"] += sum(1 for item in marks.values() if item["kind"] == "miss")
+            judged = errors = 0
+            for change in summary["changes"]:
+                verdict = (marks.get(change["id"]) or {}).get("verdict")
+                funnel["changes"] += 1
+                annotations = change.get("annotations") or []
+                if change["kind"] == "tool":
+                    funnel["tool_changes"] += 1
+                elif change["kind"] == "step":
+                    funnel["step_changes"] += 1
+                elif annotations:
+                    funnel["annotated"] += 1
+                elif change.get("explained"):
+                    funnel["explained"] += 1
+                else:
+                    funnel["unrecorded"] += 1
+                types = rewrite_review.warning_types(change)
+                funnel["warned"] += bool(types)
+                if verdict:
+                    judged += 1
+                    funnel["judged"] += 1
+                if verdict == "error":
+                    errors += 1
+                    funnel["errors"] += 1
+                    kind = (marks.get(change["id"]) or {}).get("error_type") or "other"
+                    error_types[kind] = error_types.get(kind, 0) + 1
+                tally("kind", change["kind"], verdict)
+                tally("category", (annotations[0].get("category") if annotations else None) or ("（随摘要同步）" if change.get("explained") else "（流水线未记录）" if change["kind"] == "text" else "（结构变化）"), verdict)
+                if annotations and annotations[0].get("source"):
+                    tally("source", annotations[0]["source"], verdict)
+                for warning in types:
+                    tally("warning", warning, verdict)
+                    if not verdict:
+                        warning_records.setdefault(warning, set()).add(sample)
+                for ref in {ref for edit in annotations for ref in edit.get("refs") or []}:
+                    tally("ref", ref, verdict)
+            records.append({
+                "sample_id": sample, "group_key": summary.get("group_key"), "segment": summary.get("segment"), "role": summary.get("role"),
+                "status": status, "steps": summary.get("steps"), "changes": len(summary["changes"]), "judged": judged, "errors": errors,
+                "warned": sum(1 for change in summary["changes"] if rewrite_review.warning_types(change)),
+                "residue": len(summary["residue"]), "gate": gate["decision"], "reason": gate["reasons"][0]["text"] if gate["reasons"] else "",
+                "error": summary.get("error"),
+            })
+        records.sort(key=lambda r: (r["group_key"] or r["sample_id"], r["segment"] or 0, r["sample_id"]))
+        # What each warning type would hold back if it were in the gate list.
+        warning_impact = {name: len(samples) for name, samples in warning_records.items()}
+        plan = (batch.get("plan") or {}).get("items") or {}
+        ranked = lambda group, limit: sorted(groups[group].items(), key=lambda item: (-item[1]["total"], item[0]))[:limit]  # noqa: E731
+        return {
+            "batch": {key: value for key, value in batch.items() if key != "plan"},
+            "funnel": funnel,
+            "statuses": statuses,
+            "decisions": decisions,
+            "groups": {
+                "category": ranked("category", 30), "warning": ranked("warning", 30), "kind": ranked("kind", 5),
+                "source": ranked("source", 20), "ref": [(ref, counts, plan.get(ref)) for ref, counts in ranked("ref", 25)],
+            },
+            "error_types": error_types,
+            "gate_warnings": sorted(gate_warnings),
+            "warning_impact": warning_impact,
+            "records": records,
+        }
+
+    def rewrite_changes(
+        self,
+        batch_id: str,
+        *,
+        status: str = "unjudged",
+        category: str | None = None,
+        warning: str | None = None,
+        kind: str | None = None,
+        source: str | None = None,
+        ref: str | None = None,
+        recorded: str | None = None,
+        sample: str | None = None,
+        offset: int = 0,
+        limit: int = 40,
+    ) -> dict[str, Any]:
+        """Changes across the batch, riskiest first: warnings the gate holds on, other
+        warnings, changes the pipeline did not record, then the rest."""
+        batch = self._rewrite_batch(batch_id)
+        summaries = self._rewrite_summaries(batch)
+        _, verdicts = self._rewrite_gates(batch, summaries)
+        gate_warnings = set((batch.get("settings") or {}).get("gate_warnings") or [])
+        items = []
+        facets: dict[str, dict[str, int]] = {"category": {}, "warning": {}, "kind": {}, "source": {}}
+        for order, (sample_id, summary) in enumerate(sorted(summaries.items(), key=lambda item: (item[1].get("group_key") or item[0], item[1].get("segment") or 0, item[0]))):
+            marks = verdicts.get(sample_id, {})
+            for position, change in enumerate(summary["changes"]):
+                annotations = change.get("annotations") or []
+                types = rewrite_review.warning_types(change)
+                first = annotations[0] if annotations else {}
+                name = first.get("category") or ("（随摘要同步）" if change.get("explained") else "（流水线未记录）" if change["kind"] == "text" else "（结构变化）")
+                for facet, values in (("category", [name]), ("warning", types), ("kind", [change["kind"]]), ("source", [first["source"]] if first.get("source") else [])):
+                    for value in values:
+                        facets[facet][value] = facets[facet].get(value, 0) + 1
+                verdict = marks.get(change["id"])
+                if status == "unjudged" and verdict or status == "judged" and not verdict:
+                    continue
+                if status in {"correct", "error", "uncertain"} and (verdict or {}).get("verdict") != status:
+                    continue
+                if category and name != category or warning and warning not in types or kind and change["kind"] != kind:
+                    continue
+                if source and first.get("source") != source or ref and not any(ref in (edit.get("refs") or []) for edit in annotations):
+                    continue
+                if recorded == "yes" and not annotations or recorded == "no" and (annotations or change["kind"] != "text" or change.get("explained")):
+                    continue
+                if sample and sample_id != sample:
+                    continue
+                risk = 3 if types & gate_warnings else 2 if types else 1 if change["kind"] == "text" and not annotations and not change.get("explained") else 0
+                items.append({**change, "sample_id": sample_id, "category": name, "risk": risk, "verdict": verdict, "order": (order, position)})
+        items.sort(key=lambda item: (-item["risk"], item["order"]))
+        page = items[max(0, offset) : max(0, offset) + max(1, min(200, limit))]
+        plan = (batch.get("plan") or {}).get("items") or {}
+        refs = {ref for item in page for edit in item.get("annotations") or [] for ref in edit.get("refs") or []}
+        for item in page:
+            item.pop("order", None)
+        return {
+            "total": len(items),
+            "offset": offset,
+            "items": page,
+            "facets": {key: sorted(values.items(), key=lambda pair: -pair[1]) for key, values in facets.items()},
+            "plan": {ref: plan[ref] for ref in refs if ref in plan},
+            "fates": (batch.get("plan") or {}).get("fates") or {},
+            "gate_warnings": sorted(gate_warnings),
+        }
+
+    def set_rewrite_settings(self, batch_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+        batch = self._rewrite_batch(batch_id)
+        warnings = fields.get("gate_warnings")
+        if not isinstance(warnings, list) or not all(isinstance(item, str) and 0 < len(item) <= 80 for item in warnings):
+            raise ValueError("gate_warnings must be a list of warning names")
+        settings = {**(batch.get("settings") or {}), "gate_warnings": sorted(set(warnings))}
+        self.store.set_rewrite_settings(batch_id, settings)
+        return settings
+
+    def export_rewrite_batch(self, batch_id: str, name: str, progress: Callable[..., None] | None = None) -> dict[str, Any]:
+        """Into the export root: the rewritten lines of records the gate lets in (byte for
+        byte), the chains to rerun, the verdicts and a manifest."""
+        batch = self._rewrite_batch(batch_id)
+        if not EXPORT_NAME.fullmatch(name or ""):
+            raise ValueError("export name: letters, digits, '.', '_' or '-'")
+        target = EXPORT_ROOT / name
+        if target.exists():
+            raise ValueError(f"{target} already exists")
+        summaries = self._rewrite_summaries(batch, progress)
+        gates, verdicts = self._rewrite_gates(batch, summaries)
+        rows = self.store.find_runs(batch["rewritten_collection"])
+        target.mkdir(parents=True)
+        written = skipped = 0
+        rerun: set[str] = set()
+        with (target / "accepted.jsonl").open("wb") as handle:
+            for sample, gate in sorted(gates.items()):
+                if gate["decision"] == "exclude":
+                    rerun.add(re.sub(r"_context_\d+$", "", sample))
+                if gate["decision"] != "include" or sample not in rows:
+                    continue
+                full = self.store.get_trajectory(rows[sample]["id"]) or {}
+                locator = full.get("locator") or {}
+                if "offset" not in locator:
+                    skipped += 1
+                    continue
+                with open(full["path"], "rb") as source:
+                    source.seek(int(locator["offset"]))
+                    line = source.readline()
+                handle.write(line if line.endswith(b"\n") else line + b"\n")
+                written += 1
+        (target / "rerun_chains.txt").write_text("".join(chain + "\n" for chain in sorted(rerun)), encoding="utf-8")
+        with (target / "verdicts.jsonl").open("w", encoding="utf-8") as handle:
+            for sample, marks in sorted(verdicts.items()):
+                for item in marks.values():
+                    handle.write(json.dumps(item, ensure_ascii=False) + "\n")
+        decisions = {key: sum(1 for gate in gates.values() if gate["decision"] == key) for key in ("include", "review", "exclude")}
+        manifest = {
+            "batch": batch_id, "original": batch["original_collection"], "rewritten": batch["rewritten_collection"],
+            "settings": batch.get("settings"), "decisions": decisions, "accepted_written": written, "accepted_not_copyable": skipped,
+            "rerun_chains": len(rerun), "reviewer": self.reviewer, "exported_at": now(),
+        }
+        (target / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return {"path": str(target), **manifest}
+
+    def start_rewrite_export(self, batch_id: str, name: str) -> dict[str, Any]:
+        self._rewrite_batch(batch_id)
+        return self.jobs.start("rewrite-export", lambda progress: self.export_rewrite_batch(batch_id, name, progress))
+
+    def start_rewrite_scan(self, batch_id: str) -> dict[str, Any]:
+        batch = self._rewrite_batch(batch_id)
+        return self.jobs.start("rewrite-scan", lambda progress: {"records": len(self._rewrite_summaries(batch, progress))})
+
     def save_rewrite_verdict(self, batch_id: str, sample_id: str, fields: dict[str, Any]) -> dict[str, Any]:
         """A verdict on a change, a residue item, a missed spot or the whole record (with
         `delete` set, remove the verdict under `key`), and the record's gate after it."""
@@ -1411,6 +1681,41 @@ class WorkbenchService:
             while len(self._cache) > CACHE_SIZE:
                 self._cache.popitem(last=False)
         return row, run
+
+
+def _summarize_record(record: dict[str, Any], clip: int = 600) -> dict[str, Any]:
+    """What the batch overview and change queue need from a record page payload."""
+    rows = record.get("rows") or []
+    changes = []
+    for change in record.get("changes") or []:
+        row = rows[change["row"]]
+        step = (row.get("after") or {}).get("step") or next((ref["step"] for ref in row.get("before") or []), None)
+        entry: dict[str, Any] = {
+            "id": change["id"], "kind": change["kind"], "field": change.get("field"), "step": step, "row_kind": row.get("kind"),
+            "explained": change.get("explained"),
+            "annotations": [
+                {key: (value[:clip] if isinstance(value, str) else value) for key, value in edit.items() if key in {"category", "source", "reason", "refs", "warnings", "target", "key"}}
+                for edit in change.get("annotations") or []
+            ],
+        }
+        if change["kind"] == "text":
+            entry.update(removed=(change.get("removed") or "")[:clip], added=(change.get("added") or "")[:clip])
+        elif change["kind"] == "tool":
+            tool = next((item for item in row.get("tools") or [] if item.get("change_id") == change["id"]), {})
+            entry.update(tool=tool.get("name"), change=tool.get("change"), removed=(tool.get("input") or "")[:clip] if tool.get("change") == "removed" and isinstance(tool.get("input"), str) else "")
+        else:
+            entry.update(change=change.get("change"))
+        changes.append(entry)
+    return {
+        "status": record.get("status"),
+        "missing": record.get("rewritten") is None,
+        "original_missing": record.get("original") is None,
+        "steps": [(record.get("original") or {}).get("steps"), (record.get("rewritten") or {}).get("steps")],
+        "aligned_by": record.get("aligned_by"),
+        "changes": changes,
+        "residue": [{"key": item["key"], "kind": item["kind"], "name": item["name"], "steps": item["steps"]} for item in record.get("residue") or []],
+        "syncs": [{"direction": sync.get("direction"), "ok": sync.get("ok")} for sync in record.get("syncs") or []],
+    }
 
 
 def _residue_count(result: dict[str, Any]) -> int:

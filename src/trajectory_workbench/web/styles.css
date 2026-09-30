@@ -746,3 +746,56 @@ mark.rr-residue { background: none; color: inherit; text-decoration: underline d
   .rr-table.rr-batches .explore-row { grid-template-columns: minmax(0, 1fr) 70px; }
   .rr-table.rr-batches .explore-row > :nth-child(2), .rr-table.rr-batches .explore-row > :nth-child(3), .rr-table.rr-batches .explore-row > :nth-child(5) { display: none; }
 }
+
+/* ---- rewrite batch overview & change queue ------------------------------------------ */
+.button-like.primary { color: #fff; background: var(--blue); border-color: var(--blue); }
+.page-head .eyebrow a { color: inherit; text-decoration: none; }
+.rb-funnel { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.rb-card { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-shadow: var(--shadow); color: var(--ink); text-decoration: none; min-width: 0; }
+.rb-card.link:hover { border-color: #9fb3e0; }
+.rb-card strong { font-size: 22px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.rb-card-label { color: var(--muted); font-size: 11px; font-weight: 700; }
+.rb-card-note { color: var(--faint); font-size: 11px; }
+.rb-card.gate { grid-column: span 2; }
+.rb-gates { display: flex; gap: 6px; }
+.rb-gate { flex: 1; display: grid; justify-items: start; gap: 0; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); font-size: 11px; }
+.rb-gate strong { font-size: 20px; }
+.rb-gate.ok { color: var(--green); background: var(--green-soft); border-color: #cfe7d6; }
+.rb-gate.warn { color: var(--amber); background: var(--amber-soft); border-color: #f1dcb6; }
+.rb-gate.bad { color: var(--red); background: var(--red-soft); border-color: #f1cbc7; }
+.rb-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.rb-group { padding: 4px 14px 12px; min-width: 0; }
+.rb-group .hint { margin-top: 0; }
+.rb-group-rows { display: grid; }
+.rb-group-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 56px 116px; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+.rb-group-row > a, .rb-group-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-rate { text-align: right; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.rb-check { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rb-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-bottom: 8px; }
+.rr-table.rb-records .explore-row { grid-template-columns: minmax(200px, 2fr) 60px 100px 80px 56px 60px 50px 70px minmax(150px, 1.3fr); color: inherit; text-decoration: none; }
+.rb-gate-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rb-gate-cell .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-export input { width: 280px; }
+.rq-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; }
+.rq-filters select { max-width: 240px; }
+.rq-column { display: grid; gap: 8px; min-width: 0; }
+.rq-list { display: grid; gap: 6px; }
+.rq-card { display: grid; gap: 6px; padding: 9px 12px; border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; background: var(--paper); cursor: pointer; scroll-margin-top: 80px; }
+.rq-card:hover { border-color: #c8d3e6; }
+.rq-card.selected { border-color: var(--blue); border-left-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.rq-card.judged { opacity: .6; }
+.rq-card.judged.selected { opacity: 1; }
+.rq-card.v-error { border-left-color: var(--red); }
+.rq-card.v-correct { border-left-color: var(--green); }
+.rq-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rq-where { font: 600 11px var(--mono); color: var(--muted); }
+.rq-text { display: grid; gap: 3px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.6; }
+.rq-reason { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+@media (max-width: 1180px) {
+  .rb-groups { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 820px) {
+  .rb-card.gate { grid-column: auto; }
+  .rr-table.rb-records .explore-row { grid-template-columns: minmax(0, 1fr) 70px; }
+  .rr-table.rb-records .explore-row > :not(:first-child):not(:last-child) { display: none; }
+}

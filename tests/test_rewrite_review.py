@@ -409,6 +409,51 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(blocked["gate"]["decision"], "exclude")
         self.assertEqual(blocked["rows"], [])
 
+    def test_overview_queue_settings_and_export(self) -> None:
+        from trajectory_workbench import service as service_module
+
+        self.service.create_rewrite_batch(
+            "pilot", "orig", rewritten_path=str(self.base / "new" / "dialog.jsonl"), annotations=str(self.base / "notes.jsonl")
+        )
+        overview = self.service.rewrite_overview("pilot")
+        self.assertEqual(overview["funnel"]["records"], 2)
+        self.assertEqual(overview["funnel"]["missing_rewritten"], 1)
+        self.assertEqual(overview["funnel"]["annotated"], 1)
+        self.assertEqual(overview["decisions"], {"include": 0, "review": 1, "exclude": 1})
+        self.assertEqual(overview["warning_impact"], {"drops_negation": 1})
+
+        queue = self.service.rewrite_changes("pilot")
+        # The change with a gate warning comes first.
+        self.assertEqual(queue["items"][0]["risk"], 3)
+        self.assertEqual(self.service.rewrite_changes("pilot", warning="drops_negation")["total"], 1)
+        self.assertEqual(self.service.rewrite_changes("pilot", recorded="yes")["total"], 1)
+        first = queue["items"][0]
+        self.service.save_rewrite_verdict("pilot", first["sample_id"], {"key": first["id"], "kind": "change", "verdict": "correct"})
+        self.assertEqual(self.service.rewrite_changes("pilot")["total"], queue["total"] - 1)
+        self.assertEqual(self.service.rewrite_changes("pilot", status="correct")["total"], 1)
+
+        with self.assertRaises(ValueError):
+            self.service.set_rewrite_settings("pilot", {"gate_warnings": "drops_negation"})
+        self.service.set_rewrite_settings("pilot", {"gate_warnings": []})
+        for item in self.service.rewrite_record("pilot", "deck-1_m_attempt_01")["residue"]:
+            self.service.save_rewrite_verdict("pilot", "deck-1_m_attempt_01", {"key": item["key"], "kind": "residue", "verdict": "ignore"})
+        self.assertEqual(self.service.rewrite_overview("pilot")["decisions"]["include"], 1)
+
+        root = service_module.EXPORT_ROOT
+        service_module.EXPORT_ROOT = self.base / "exports"
+        try:
+            result = self.service.export_rewrite_batch("pilot", "out")
+            with self.assertRaises(ValueError):
+                self.service.export_rewrite_batch("pilot", "out")
+        finally:
+            service_module.EXPORT_ROOT = root
+        out = self.base / "exports" / "out"
+        source = (self.base / "new" / "dialog.jsonl").read_bytes()
+        self.assertEqual((out / "accepted.jsonl").read_bytes(), source)
+        self.assertEqual((out / "rerun_chains.txt").read_text(), "deck-2_m_attempt_01\n")
+        self.assertEqual(result["decisions"], {"include": 1, "review": 0, "exclude": 1})
+        self.assertEqual(len((out / "verdicts.jsonl").read_text().splitlines()), 3)
+
     def test_verdicts_are_validated(self) -> None:
         self.service.create_rewrite_batch("b", "orig", rewritten_path=str(self.base / "new" / "dialog.jsonl"))
         bad = [

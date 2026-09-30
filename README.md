@@ -192,7 +192,12 @@ changed calls and merges are grey event bars; a minimap shows where the changes 
 inspector shows the selected change with the pipeline's notes and takes a verdict (keys:
 `j`/`k` next / previous change, `1` right, `2` wrong then `1`–`6` for the error type, `3`
 unsure; `t` training view, `o` side by side, `J`/`K` next / previous record). Select text to
-mark a missed spot. Each record gets a training gate — include / review / exclude — from
+mark a missed spot. The batch overview shows the funnel (records, changes recorded or
+not by the pipeline, warnings, residue, summary sync, verdicts, gate), change counts and
+error rates by category, warning and plan item, which warning types hold records for
+review (editable, with how many records each would hold), and exports the lines of the
+records the gate lets in, byte for byte, with the chains to rerun. The change queue lists
+every change of the batch, riskiest first, for keyboard review. Each record gets a training gate — include / review / exclude — from
 the pipeline status, verdicts, open residue, summary sync and warned changes not yet judged.
 
 ```bash

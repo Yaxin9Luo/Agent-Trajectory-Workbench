@@ -144,6 +144,13 @@ CREATE TABLE IF NOT EXISTS rewrite_annotations (
     payload TEXT NOT NULL,
     PRIMARY KEY (batch_id, sample_id)
 );
+CREATE TABLE IF NOT EXISTS rewrite_summaries (
+    batch_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY (batch_id, sample_id)
+);
 CREATE TABLE IF NOT EXISTS rewrite_verdicts (
     batch_id TEXT NOT NULL,
     sample_id TEXT NOT NULL,
@@ -1009,4 +1016,23 @@ class Store:
                 "DELETE FROM rewrite_verdicts WHERE batch_id = ? AND sample_id = ? AND key = ? AND reviewer = ?",
                 (batch_id, sample_id, key, reviewer),
             )
+            self._db.commit()
+
+    def rewrite_summaries(self, batch_id: str) -> dict[str, tuple[str, dict[str, Any]]]:
+        with self._locked():
+            rows = self._db.execute("SELECT sample_id, key, payload FROM rewrite_summaries WHERE batch_id = ?", (batch_id,)).fetchall()
+        return {row["sample_id"]: (row["key"], json.loads(row["payload"])) for row in rows}
+
+    def put_rewrite_summary(self, batch_id: str, sample_id: str, key: str, payload: dict[str, Any]) -> None:
+        with self._locked():
+            self._db.execute(
+                "INSERT INTO rewrite_summaries (batch_id, sample_id, key, payload) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(batch_id, sample_id) DO UPDATE SET key=excluded.key, payload=excluded.payload",
+                (batch_id, sample_id, key, json.dumps(payload, ensure_ascii=False)),
+            )
+            self._db.commit()
+
+    def set_rewrite_settings(self, batch_id: str, settings: dict[str, Any]) -> None:
+        with self._locked():
+            self._db.execute("UPDATE rewrite_batches SET settings = ? WHERE id = ?", (json.dumps(settings, ensure_ascii=False), batch_id))
             self._db.commit()

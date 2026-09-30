@@ -1,6 +1,7 @@
 import { api, pollJob } from "../api.js";
 import { chip, clear, details, empty, h } from "../dom.js";
 import { formatCount } from "../presentation.mjs";
+import { renderOverview, renderQueue } from "./rewrite-batch.js";
 
 /*
  * Rewrite review: an original and a rewritten collection paired by sample id. The server
@@ -22,8 +23,9 @@ const STATUS_TONE = { rewritten: "ok", blocked: "bad", unsupported: "bad", spec_
 const FOLD_KEEP = 240;
 
 export async function renderRewrites(root, ctx, parts, params, still) {
-  if (parts[1] && parts[2] === "r" && parts[3]) return renderRecord(root, ctx, parts[1], parts[3], still);
-  if (parts[1]) return renderBatch(root, ctx, parts[1], still);
+  if (parts[1] && parts[2] === "r" && parts[3]) return renderRecord(root, ctx, parts[1], parts[3], still, params);
+  if (parts[1] && parts[2] === "queue") return renderQueue(root, ctx, parts[1], params, still);
+  if (parts[1]) return renderOverview(root, ctx, parts[1], params, still);
   return renderBatches(root, ctx, still);
 }
 
@@ -108,60 +110,9 @@ function createForm(ctx) {
   return form;
 }
 
-async function renderBatch(root, ctx, batchId, still) {
-  clear(root, empty("读取批次…"));
-  const payload = await api.rewriteBatch(batchId);
-  if (!still()) return;
-  const batch = payload.batch;
-  ctx.rewriteNav = { batch: batchId, ids: payload.records.filter((record) => record.rewritten).map((record) => record.sample_id) };
-  const meta = batch.annotations?.meta || {};
-  const report = meta.report || {};
-  const facts = [
-    batch.original_collection + " → " + batch.rewritten_collection,
-    batch.annotations ? annotationLabel(batch.annotations) : "没有流水线注解",
-    batch.plan_items ? "方案条目 " + batch.plan_items : null,
-    report.edits != null ? "流水线改动 " + formatCount(report.edits) : null,
-  ].filter(Boolean);
-  const paired = payload.records.filter((record) => record.original && record.rewritten).length;
-  const rows = payload.records.map((record) => {
-    const href = record.rewritten || record.original ? "#/rewrites/" + encodeURIComponent(batchId) + "/r/" + encodeURIComponent(record.sample_id) : null;
-    return h(
-      href ? "a" : "div",
-      { class: "explore-row" + (record.role !== "main" ? " rr-member" : ""), href },
-      h("strong", {}, record.sample_id),
-      h("span", {}, record.segment ? "第 " + record.segment + " 段" : record.role === "subagent" ? "子代理" : ""),
-      record.status ? chip(record.status, STATUS_TONE[record.status] || "muted") : h("span", { class: "muted" }, "—"),
-      h("span", { class: "num" }, (record.original ? record.original.steps : "—") + " → " + (record.rewritten ? record.rewritten.steps : "—")),
-      h("span", { class: "num" }, record.changes == null ? "—" : String(record.changes)),
-      h("span", { class: "num" + (record.warned ? " bad-text" : "") }, record.warned == null ? "—" : String(record.warned)),
-      h("span", { class: "num" }, String(record.verdicts || ""))
-    );
-  });
-  clear(
-    root,
-    h(
-      "header",
-      { class: "page-head" },
-      h("div", {}, h("span", { class: "eyebrow" }, "改写审阅 · 批次"), h("h1", {}, batch.name), h("p", { class: "hint" }, facts.join(" · "))),
-      h("div", { class: "head-actions" }, h("a", { class: "link-button", href: "#/rewrites" }, "← 全部批次"))
-    ),
-    h(
-      "section",
-      { class: "panel explore-card" },
-      h("div", { class: "panel-head" }, h("div", {}, h("h2", {}, payload.records.length + " 条记录"), h("p", {}, paired + " 条两边都有；点一条进入逐处审阅（J / K 在记录间切换）"))),
-      h(
-        "div",
-        { class: "explore-table rr-table rr-records" },
-        h("div", { class: "explore-row head" }, h("span", {}, "样本"), h("span", {}, "段"), h("span", {}, "流水线状态"), h("span", { class: "num" }, "步数"), h("span", { class: "num" }, "流水线改动"), h("span", { class: "num" }, "带警告"), h("span", { class: "num" }, "已判定")),
-        rows
-      )
-    )
-  );
-}
-
 // ---- one record ----------------------------------------------------------------------
 
-async function renderRecord(root, ctx, batchId, sampleId, still) {
+async function renderRecord(root, ctx, batchId, sampleId, still, params = new URLSearchParams()) {
   clear(root, empty("对齐并比较…"));
   const [record, listing] = await Promise.all([
     api.rewriteRecord(batchId, sampleId),
@@ -1164,4 +1115,7 @@ async function renderRecord(root, ctx, batchId, sampleId, still) {
   renderMap();
   renderRows();
   renderInspector();
+  // Opened from the change queue: go straight to that change.
+  const wanted = params.get("change");
+  if (wanted && changeById.has(wanted)) select(wanted);
 }

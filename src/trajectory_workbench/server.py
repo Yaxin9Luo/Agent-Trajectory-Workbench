@@ -132,6 +132,15 @@ def create_server(
             if len(raw) >= 3 and raw[:2] == ["api", "rewrite-batches"]:
                 if len(raw) == 3:
                     return self._json(service.rewrite_batch_records(raw[2]))
+                if len(raw) == 4 and raw[3] == "overview":
+                    return self._json(service.rewrite_overview(raw[2]))
+                if len(raw) == 4 and raw[3] == "changes":
+                    return self._json(service.rewrite_changes(
+                        raw[2],
+                        **{key: one(key) for key in ("status", "category", "warning", "kind", "source", "ref", "recorded", "sample") if one(key)},
+                        offset=self._int(query, "offset", 0),
+                        limit=self._int(query, "limit", 40),
+                    ))
                 if len(raw) == 5 and raw[3] == "records":
                     return self._json(service.rewrite_record(raw[2], raw[4]))
             parts = [part for part in path.split("/") if part]
@@ -247,6 +256,13 @@ def create_server(
                         raise ValueError(f"{key} must be an absolute path")
                 return self._json(service.start_rewrite_batch(**fields), status=HTTPStatus.ACCEPTED)
             raw = self._raw_parts()
+            if len(raw) == 4 and raw[:2] == ["api", "rewrite-batches"]:
+                if raw[3] == "settings":
+                    return self._json(service.set_rewrite_settings(raw[2], payload))
+                if raw[3] == "export":
+                    return self._json(service.start_rewrite_export(raw[2], str(payload.get("name") or "")), status=HTTPStatus.ACCEPTED)
+                if raw[3] == "scan":
+                    return self._json(service.start_rewrite_scan(raw[2]), status=HTTPStatus.ACCEPTED)
             if len(raw) == 6 and raw[:2] == ["api", "rewrite-batches"] and raw[3] == "records" and raw[5] == "verdicts":
                 return self._json(service.save_rewrite_verdict(raw[2], raw[4], payload))
             parts = [part for part in path.split("/") if part]
