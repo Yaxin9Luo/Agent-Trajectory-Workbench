@@ -161,9 +161,44 @@ templates (the line that states the error, with paths / numbers / strings masked
 one collection or two side by side (e.g. two checkpoints).
 
 **Compare** — two trajectories side by side (summary, tool-usage differences, first
-divergence), and **rewrite comparison**: two collections paired by sample id (before /
-after a rewrite pass) with trained-token and harness-residue changes and a field-level
-diff of every changed message.
+divergence).
+
+**Rewrite review** — for training data rewritten from one harness to another (e.g. a
+harness's trajectories rewritten for the stock agent). A batch pairs an original and a
+rewritten collection by sample id; both are ordinary collections in any supported format.
+The platform itself, for any harness and any rewriting pipeline:
+- aligns the steps (kept, changed, merged, removed, added; from the pipeline's message
+  index map when it gives one, otherwise from kept tool-call ids and content — on the 33
+  pilot records the inferred alignment matched the pipeline's map exactly) and diffs text,
+  reasoning, tool inputs and results word by word (a heavily rewritten passage shows as
+  removed-then-added, not word fragments);
+- compares the harnesses: components by layer (removed / added / kept), system-prompt
+  sections, tool declarations (including tools kept but redefined);
+- finds **residue**: components the rewrite removed that the rewritten turns still call,
+  pass in arguments, name (card-like files also by their stem) or use the products of —
+  where a missed rewrite hides;
+- checks that a compaction summary and the next segment's continuation still carry the
+  same text.
+
+A pipeline can add **annotations** (why each edit, its category, plan items it follows,
+evidence, locator hints, validator warnings, sample status): a neutral JSONL any pipeline
+can write (format in `docs/superpowers/specs/2026-09-30-rewrite-review-design.md`), or a
+rewrite run directory (`run_config.json`, `rewritten.jsonl`, `chains/*/{status.json,results.jsonl}`).
+Annotations are read-only and optional.
+
+The record page reads the rewritten trajectory in one column: removed text struck in red,
+added text in green, residue underlined in amber; unchanged steps fold away; removed or
+changed calls and merges are grey event bars; a minimap shows where the changes are. The
+inspector shows the selected change with the pipeline's notes and takes a verdict (keys:
+`j`/`k` next / previous change, `1` right, `2` wrong then `1`–`6` for the error type, `3`
+unsure; `t` training view, `o` side by side, `J`/`K` next / previous record). Select text to
+mark a missed spot. Each record gets a training gate — include / review / exclude — from
+the pipeline status, verdicts, open residue, summary sync and warned changes not yet judged.
+
+```bash
+trajectory-workbench rewrite-batch pilot --original ORIGINAL_COLLECTION \
+  --rewritten-path /abs/run/rewritten.jsonl --annotations /abs/run
+```
 
 **Training data**
 - readiness per trajectory: over the sequence length (256K by default,

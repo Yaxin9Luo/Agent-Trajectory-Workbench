@@ -114,3 +114,19 @@
 - [x] 阅读器“Harness 增加的组件”面板、库里 Jev 信号筛选（episode 任一成员）、统计页按组件的依赖条数
 - [x] 评审修复：Codex 原生工具补全（exec、collaboration__*、clock__sleep 等）且 Codex 自带的 developer 消息不算指令（300 条真实 Codex 会话：误报 246 → 4，剩下 4 条确实用了 MCP 插件）；MoH 的系统提示在 model_prompt 里也读；目录（`tests/`）不算 harness 文件；改写对比按原始轨迹的组件清单判断改写后的样本；MCP 工具的短名不重复算成工具；参数先做子串预筛（83 → 5 ms/条），绝对路径里的 harness 文件也能认出
 - [ ] 开发机上重新索引 Slides 并跑 Jev（开发机当前连不上）
+
+## 改写审阅（通用，2026-09-30 spec：docs/superpowers/specs/2026-09-30-rewrite-review-design.md）
+原则：平台算 diff、对齐、harness 增减、残留、分流；流水线的理由/方案条目等是可选注解，经适配器读入。
+- [x] R1 `STOCK_SECTIONS` 补 "Text output (does not apply to tool calls)"；chat 适配器记下工具声明（名字 → 描述、定义哈希）
+- [x] R2 词级 diff（中英混排按字/词切分，合并碎片）
+- [x] R3 步骤对齐：有 index_map 时直接映射；没有时按调用 id 锚点 + 角色/文本相似度，识别合并、删除、新增；工具调用按 id 比较
+- [x] R4 harness 增减（四层清单两边比较、系统提示按段、工具声明）+ 残留（原始有、改写后没有的组件在改写后训练步骤里的用法）
+- [x] R5 注解适配器：中性 JSONL + 改写运行目录（results/status/rewritten tag/条款表 → 方案条目）；注解挂到 diff 上，没记录的改动单独标出
+- [x] R6 存储：批次、注解、判定；分流规则；摘要同步检查
+- [x] R7 接口 + CLI（建批次、导入改写结果、读记录、存判定）
+- [x] R8 前端：批次列表 + 单条记录页（迷你地图、harness 卡、折叠、事件条、详情栏、判定、漏改标注、训练视角、并排、键盘）
+- [x] R9 测试：合成样例单测；真实 pilot 运行上验证无映射推断 = index_map、改动数 = report.json
+- [x] R10 部署到开发机（8416），建了 pilot_skills_v2 / pilot_v3_1 两个批次（原始 = Slides 2k 改写源 0924，pilot 33 条原文与之逐字一致）；浏览器走查：键盘判定、错误类型、自动跳下一处、分流联动、漏改标注、残留确认/忽略、训练视角、并排、J/K、820px 窄屏
+- [ ] R11（下一步，待确认）批次总览、改动队列、分流设置、导出
+- [ ] R12 新页面确认后删掉旧的"改写对比"页（#/rewrite、/api/rewrites、/api/rewrite-diff、rewrite.diff_runs、rewrite_pairs）
+- 真实数据验证（2026-09-30，pilot 33 条）：无映射推断的对齐 = 流水线 index_map 33/33；流水线改动 553/553、407/407 全部挂到 diff 上；没记录的改动只剩上下文里的 todo 重编号和摘要续写重建；每条记录计算 < 0.3 s

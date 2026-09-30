@@ -49,6 +49,15 @@ def build_parser() -> argparse.ArgumentParser:
     jev_out.add_argument("collection")
     jev_out.add_argument("out", type=Path, help="new .jsonl file")
     jev_out.add_argument("--url-base", default="", help="workbench URL for trajectory links, e.g. http://host:8416")
+    batch = commands.add_parser(
+        "rewrite-batch",
+        help="pair an original and a rewritten collection by sample id for rewrite review (optionally import the rewrite and attach pipeline annotations)",
+    )
+    batch.add_argument("name", help="batch name (letters, digits, . _ -)")
+    batch.add_argument("--original", required=True, help="collection with the original trajectories")
+    batch.add_argument("--rewritten", help="collection with the rewritten trajectories (the collection to import into with --rewritten-path)")
+    batch.add_argument("--rewritten-path", help="import the rewritten trajectories from this file or directory first")
+    batch.add_argument("--annotations", help="pipeline annotations: an annotations .jsonl or a rewrite run directory (read-only)")
     export = commands.add_parser("export-reviews", help="write reviews as JSONL to stdout")
     export.add_argument("--collection")
     data = commands.add_parser("export", help="write matching trajectories as training JSONL plus a data card")
@@ -111,6 +120,21 @@ def main() -> None:
             result = {"removed": service.store.remove_collection(args.collection)}
     elif args.command == "export-jev":
         result = service.export_jev(args.collection, args.out, args.url_base)
+    elif args.command == "rewrite-batch":
+        if not args.rewritten and not args.rewritten_path:
+            raise SystemExit("give --rewritten (a collection) or --rewritten-path (to import)")
+
+        def progress(done=None, total=None, message=None):
+            if message:
+                print(f"\r[{done or 0}] {message[:100]:<100}", end="", file=sys.stderr, flush=True)
+
+        result = service.create_rewrite_batch(
+            args.name, args.original, rewritten=args.rewritten,
+            rewritten_path=str(Path(args.rewritten_path).expanduser().resolve()) if args.rewritten_path else None,
+            annotations=str(Path(args.annotations).expanduser().resolve()) if args.annotations else None,
+            progress=progress,
+        )
+        print(file=sys.stderr)
     elif args.command == "export-reviews":
         sys.stdout.write(service.export_reviews(args.collection))
         return

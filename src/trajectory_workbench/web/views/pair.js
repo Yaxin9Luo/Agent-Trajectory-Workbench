@@ -33,7 +33,7 @@ export async function renderCompareHome(root, ctx) {
         h("li", {}, "或在阅读器右上角点“加入对比”；"),
         h("li", {}, "阅读器“关联轨迹”里同一道题的其他尝试可以直接点“对照读”。")
       ),
-      h("p", {}, "整批改写前后（同一个样本 id 在两个集合里）：", h("a", { href: "#/rewrite" }, "改写对比 →"))
+      h("p", {}, "整批改写前后（同一个样本 id 在两个集合里）：", h("a", { href: "#/rewrites" }, "改写审阅 →"))
     ),
     h(
       "section",

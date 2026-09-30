@@ -12,6 +12,7 @@ from, each sample's grader verdict is read from the input directory's `results.j
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -304,11 +305,21 @@ class OpenAIChatAdapter:
         meta.update(extra_meta or {})
 
         available = []
+        # What each declared tool says it does: a rewrite that keeps a tool may still
+        # redefine it (the MCP layer of the target harness).
+        tool_specs: dict[str, dict[str, str]] = {}
         for tool in sample.get("tools") or []:
             if isinstance(tool, dict):
                 function = tool.get("function") if isinstance(tool.get("function"), dict) else tool
                 if isinstance(function.get("name"), str):
                     available.append(function["name"])
+                    definition = json.dumps(function, sort_keys=True, ensure_ascii=False, default=str)
+                    tool_specs[function["name"]] = {
+                        "description": str(function.get("description") or ""),
+                        "sha": hashlib.sha256(definition.encode("utf-8")).hexdigest()[:16],
+                    }
+        if tool_specs:
+            meta["tool_specs"] = tool_specs
 
         if outcome is None and outcome_lookup is not None:
             found = outcome_lookup.lookup(row_index, sample_id)

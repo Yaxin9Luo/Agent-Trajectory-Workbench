@@ -124,6 +124,39 @@ CREATE TABLE IF NOT EXISTS jev_results (
     created_at TEXT NOT NULL,
     PRIMARY KEY (trajectory_id, kind)
 );
+CREATE INDEX IF NOT EXISTS trajectories_run ON trajectories(collection, run_id);
+CREATE TABLE IF NOT EXISTS rewrite_batches (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    original_collection TEXT NOT NULL,
+    rewritten_collection TEXT NOT NULL,
+    annotations TEXT,
+    plan TEXT,
+    settings TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rewrite_annotations (
+    batch_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL,
+    status TEXT,
+    changes INTEGER NOT NULL DEFAULT 0,
+    warned INTEGER NOT NULL DEFAULT 0,
+    payload TEXT NOT NULL,
+    PRIMARY KEY (batch_id, sample_id)
+);
+CREATE TABLE IF NOT EXISTS rewrite_verdicts (
+    batch_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    reviewer TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    error_type TEXT,
+    note TEXT,
+    detail TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (batch_id, sample_id, key, reviewer)
+);
 """
 
 FTS_SCHEMA = (
@@ -871,3 +904,109 @@ class Store:
         with self._locked():
             row = self._db.execute(sql, params).fetchone()
         return {"results": row[0], "input_tokens": row[1]}
+
+    # -- rewrite review -------------------------------------------------------------------
+
+    def find_runs(self, collection: str, run_ids: Iterable[str] | None = None) -> dict[str, dict[str, Any]]:
+        """Index rows of a collection by sample id (`run_id`): all, or the ones asked for."""
+        columns = "id, run_id, title, steps, group_key, group_role, segment, path, fingerprint"
+        with self._locked():
+            if run_ids is None:
+                rows = self._db.execute(f"SELECT {columns} FROM trajectories WHERE collection = ?", (collection,)).fetchall()
+            else:
+                rows = []
+                for run_id in run_ids:
+                    rows.extend(self._db.execute(f"SELECT {columns} FROM trajectories WHERE collection = ? AND run_id = ?", (collection, run_id)).fetchall())
+        return {row["run_id"]: dict(row) for row in rows if row["run_id"]}
+
+    def save_rewrite_batch(self, batch: dict[str, Any], annotations: dict[str, dict[str, Any]]) -> None:
+        rows = []
+        for sample_id, payload in annotations.items():
+            warned = sum(1 for change in payload.get("changes") or [] if change.get("warnings"))
+            rows.append((batch["id"], sample_id, payload.get("status"), len(payload.get("changes") or []), warned, json.dumps(payload, ensure_ascii=False)))
+        with self._locked():
+            if self._db.execute("SELECT 1 FROM rewrite_batches WHERE id = ?", (batch["id"],)).fetchone():
+                raise ValueError(f"a rewrite batch named {batch['id']!r} already exists")
+            self._db.execute(
+                "INSERT INTO rewrite_batches (id, name, original_collection, rewritten_collection, annotations, plan, settings, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    batch["id"], batch["name"], batch["original_collection"], batch["rewritten_collection"],
+                    json.dumps(batch.get("annotations"), ensure_ascii=False), json.dumps(batch.get("plan") or {}, ensure_ascii=False),
+                    json.dumps(batch.get("settings") or {}, ensure_ascii=False), now(),
+                ),
+            )
+            self._db.executemany(
+                "INSERT INTO rewrite_annotations (batch_id, sample_id, status, changes, warned, payload) VALUES (?, ?, ?, ?, ?, ?)", rows
+            )
+            self._db.commit()
+
+    def _batch(self, row: sqlite3.Row, with_plan: bool) -> dict[str, Any]:
+        item = {key: row[key] for key in ("id", "name", "original_collection", "rewritten_collection", "created_at")}
+        for key in ("annotations", "settings", *(("plan",) if with_plan else ())):
+            item[key] = json.loads(row[key]) if row[key] else None
+        return item
+
+    def rewrite_batches(self) -> list[dict[str, Any]]:
+        with self._locked():
+            rows = self._db.execute(
+                "SELECT id, name, original_collection, rewritten_collection, annotations, settings, created_at FROM rewrite_batches ORDER BY created_at DESC"
+            ).fetchall()
+            verdicts = dict(self._db.execute("SELECT batch_id, COUNT(*) FROM rewrite_verdicts GROUP BY batch_id").fetchall())
+        return [{**self._batch(row, with_plan=False), "verdicts": verdicts.get(row["id"], 0)} for row in rows]
+
+    def rewrite_batch(self, batch_id: str) -> dict[str, Any] | None:
+        with self._locked():
+            row = self._db.execute("SELECT * FROM rewrite_batches WHERE id = ?", (batch_id,)).fetchone()
+        return self._batch(row, with_plan=True) if row else None
+
+    def rewrite_annotation(self, batch_id: str, sample_id: str) -> dict[str, Any] | None:
+        with self._locked():
+            row = self._db.execute(
+                "SELECT payload FROM rewrite_annotations WHERE batch_id = ? AND sample_id = ?", (batch_id, sample_id)
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def rewrite_annotation_counts(self, batch_id: str) -> dict[str, dict[str, Any]]:
+        with self._locked():
+            rows = self._db.execute(
+                "SELECT sample_id, status, changes, warned FROM rewrite_annotations WHERE batch_id = ?", (batch_id,)
+            ).fetchall()
+        return {row["sample_id"]: {"status": row["status"], "changes": row["changes"], "warned": row["warned"]} for row in rows}
+
+    def rewrite_verdicts(self, batch_id: str, sample_id: str | None = None, reviewer: str | None = None) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM rewrite_verdicts WHERE batch_id = ?"
+        params: list[Any] = [batch_id]
+        if sample_id is not None:
+            sql += " AND sample_id = ?"
+            params.append(sample_id)
+        if reviewer is not None:
+            sql += " AND reviewer = ?"
+            params.append(reviewer)
+        with self._locked():
+            rows = self._db.execute(sql + " ORDER BY updated_at", params).fetchall()
+        return [{**dict(row), "detail": json.loads(row["detail"]) if row["detail"] else None} for row in rows]
+
+    def save_rewrite_verdict(self, batch_id: str, sample_id: str, key: str, reviewer: str, fields: dict[str, Any]) -> dict[str, Any]:
+        stamp = now()
+        with self._locked():
+            self._db.execute(
+                "INSERT INTO rewrite_verdicts (batch_id, sample_id, key, reviewer, kind, verdict, error_type, note, detail, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(batch_id, sample_id, key, reviewer) DO UPDATE SET "
+                "kind=excluded.kind, verdict=excluded.verdict, error_type=excluded.error_type, note=excluded.note, "
+                "detail=excluded.detail, updated_at=excluded.updated_at",
+                (
+                    batch_id, sample_id, key, reviewer, fields["kind"], fields["verdict"], fields.get("error_type"), fields.get("note"),
+                    json.dumps(fields["detail"], ensure_ascii=False) if fields.get("detail") is not None else None, stamp,
+                ),
+            )
+            self._db.commit()
+        return {"batch_id": batch_id, "sample_id": sample_id, "key": key, "reviewer": reviewer, **fields, "updated_at": stamp}
+
+    def delete_rewrite_verdict(self, batch_id: str, sample_id: str, key: str, reviewer: str) -> None:
+        with self._locked():
+            self._db.execute(
+                "DELETE FROM rewrite_verdicts WHERE batch_id = ? AND sample_id = ? AND key = ? AND reviewer = ?",
+                (batch_id, sample_id, key, reviewer),
+            )
+            self._db.commit()

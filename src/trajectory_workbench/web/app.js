@@ -7,6 +7,7 @@ import { renderQueue } from "./views/queue.js";
 import { renderReader } from "./views/reader.js";
 import { renderExplore } from "./views/explore.js";
 import { renderRewrite } from "./views/rewrite.js";
+import { renderRewrites } from "./views/rewrites.js";
 import { renderSearch } from "./views/search.js";
 import { renderStats } from "./views/stats.js";
 
@@ -70,6 +71,7 @@ async function route() {
     else if (page === "search") await renderSearch(target, ctx, params, still);
     else if (page === "explore") await renderExplore(target, ctx, params, still);
     else if (page === "rewrite") await renderRewrite(target, ctx, params, still);
+    else if (page === "rewrites") await renderRewrites(target, ctx, parts, params, still);
     else await renderLibrary(target, ctx, params, still);
   } catch (error) {
     if (still()) clear(target, h("div", { class: "panel error-panel" }, h("strong", {}, "读取失败"), h("p", {}, error.message)));
