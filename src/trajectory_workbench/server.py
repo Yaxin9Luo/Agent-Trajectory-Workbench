@@ -88,10 +88,6 @@ def create_server(
                         limit=self._int(query, "limit", 100),
                     )
                 )
-            if path == "/api/rewrites":
-                return self._json(service.rewrite_pairs(one("before") or "", one("after") or ""))
-            if path == "/api/rewrite-diff":
-                return self._json(service.rewrite_diff(one("before") or "", one("after") or ""))
             if path == "/api/corrections/export":
                 kind = one("kind") or "sft"
                 body = service.export_corrections(one("collection") or None, kind).encode("utf-8")

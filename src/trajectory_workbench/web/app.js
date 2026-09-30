@@ -6,7 +6,6 @@ import { renderCompareHome, renderPair } from "./views/pair.js";
 import { renderQueue } from "./views/queue.js";
 import { renderReader } from "./views/reader.js";
 import { renderExplore } from "./views/explore.js";
-import { renderRewrite } from "./views/rewrite.js";
 import { renderRewrites } from "./views/rewrites.js";
 import { renderSearch } from "./views/search.js";
 import { renderStats } from "./views/stats.js";
@@ -56,7 +55,7 @@ async function route() {
   const { parts, params } = parseHash();
   const page = parts[0] || "library";
   document.querySelectorAll("[data-nav]").forEach((link) => {
-    const current = page === "t" ? (ctx.queueNav ? "queue" : "library") : page === "pair" || page === "rewrite" ? "compare" : page;
+    const current = page === "t" ? (ctx.queueNav ? "queue" : "library") : page === "pair" ? "compare" : page;
     link.classList.toggle("active", link.dataset.nav === current);
   });
   const target = h("div", { class: "view-root" });
@@ -70,7 +69,6 @@ async function route() {
     else if (page === "stats") await renderStats(target, ctx, still);
     else if (page === "search") await renderSearch(target, ctx, params, still);
     else if (page === "explore") await renderExplore(target, ctx, params, still);
-    else if (page === "rewrite") await renderRewrite(target, ctx, params, still);
     else if (page === "rewrites") await renderRewrites(target, ctx, parts, params, still);
     else await renderLibrary(target, ctx, params, still);
   } catch (error) {

@@ -557,14 +557,6 @@ pre.diff { max-height: 420px; overflow: auto; }
 .messages.training-view .message.assistant, .messages.training-view .message.tool { box-shadow: inset 3px 0 0 var(--blue); }
 .messages.training-view .tool-box details:last-of-type { opacity: .55; }
 
-/* Rewrite comparison */
-.explore-table.rewrite .explore-row { grid-template-columns: minmax(0, 2fr) minmax(80px, .7fr) minmax(110px, .9fr) minmax(90px, .7fr) minmax(80px, .6fr); }
-.rewrite-same { padding: 2px 8px; font-size: 12px; }
-.rewrite-block { padding: 10px 12px; display: grid; gap: 6px; }
-.rewrite-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
-.rewrite-field { display: grid; gap: 2px; min-width: 0; }
-@media (max-width: 820px) {
-  .explore-table.rewrite .explore-row { grid-template-columns: minmax(0, 1fr) 90px; }
   .explore-table.rewrite .explore-row > :nth-child(n+3):not(:last-child) { display: none; }
 }
 

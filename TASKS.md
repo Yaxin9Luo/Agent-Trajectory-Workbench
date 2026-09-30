@@ -128,5 +128,5 @@
 - [x] R9 测试：合成样例单测；真实 pilot 运行上验证无映射推断 = index_map、改动数 = report.json
 - [x] R10 部署到开发机（8416），建了 pilot_skills_v2 / pilot_v3_1 两个批次（原始 = Slides 2k 改写源 0924，pilot 33 条原文与之逐字一致）；浏览器走查：键盘判定、错误类型、自动跳下一处、分流联动、漏改标注、残留确认/忽略、训练视角、并排、J/K、820px 窄屏
 - [x] R11 批次总览（漏斗、按类别/警告/方案条目/种类的数量和错误率、判错类型、按警告设置分流并显示影响条数、记录表按分流筛选、导出可进原行 + 重跑 chain 清单 + 判定 + manifest）、改动队列（跨记录按风险排序、筛选、键盘判定自动下一处、Enter 打开记录并定位）；记录摘要按源指纹缓存，分流按请求现算
-- [ ] R12 新页面确认后删掉旧的"改写对比"页（#/rewrite、/api/rewrites、/api/rewrite-diff、rewrite.diff_runs、rewrite_pairs）
+- [x] R12 删掉旧的"改写对比"页（#/rewrite、/api/rewrites、/api/rewrite-diff、rewrite.diff_runs、rewrite_pairs）
 - 真实数据验证（2026-09-30，pilot 33 条）：无映射推断的对齐 = 流水线 index_map 33/33；流水线改动 553/553、407/407 全部挂到 diff 上；没记录的改动只剩上下文里的 todo 重编号和摘要续写重建；每条记录计算 < 0.3 s

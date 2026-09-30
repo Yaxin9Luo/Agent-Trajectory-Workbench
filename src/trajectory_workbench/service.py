@@ -315,44 +315,6 @@ class WorkbenchService:
 
     # -- rewrite diff & corrections -------------------------------------------------------
 
-    def rewrite_pairs(self, before: str, after: str, limit: int = 500) -> dict[str, Any]:
-        """Trajectories present in both collections under the same sample id."""
-        left = {row["run_id"]: row for row in self.store.all_trajectories(before) if row.get("run_id")}
-        pairs = []
-        for row in self.store.all_trajectories(after):
-            other = left.get(row.get("run_id"))
-            if other is None:
-                continue
-            ra, rb = other.get("readiness") or {}, row.get("readiness") or {}
-            pairs.append({
-                "run_id": row["run_id"],
-                "before": {"id": other["id"], "steps": other.get("steps"), "trained_tokens": ra.get("trained_tokens"), "residue": _residue_count(ra), "ready": ra.get("ready")},
-                "after": {"id": row["id"], "steps": row.get("steps"), "trained_tokens": rb.get("trained_tokens"), "residue": _residue_count(rb), "ready": rb.get("ready")},
-                "same_source": other.get("fingerprint") == row.get("fingerprint") and other.get("path") == row.get("path"),
-            })
-        pairs.sort(key=lambda item: item["run_id"])
-        shown = pairs[:limit]
-        # A rewrite that also drops the harness prompt or tool declarations would have an
-        # empty inventory of its own: judge it against what the original had.
-        for pair in shown:
-            original = ((left[pair["run_id"]].get("signals") or {}).get("values") or {}).get("harness")
-            if not original:
-                continue
-            try:
-                _, run = self._load(pair["after"]["id"], cache=False)
-            except (FileNotFoundError, KeyError, OSError, ValueError):
-                continue
-            pair["after"]["residue"] = harness.used_steps(harness.trace(run, harness.merge(original, harness.inventory(run))))
-        return {"before": before, "after": after, "matched": len(pairs), "only_before": len(left) - len(pairs), "pairs": shown}
-
-    def rewrite_diff(self, before_id: str, after_id: str) -> dict[str, Any]:
-        row_a, run_a = self._load(before_id)
-        row_b, run_b = self._load(after_id)
-        result = rewrite.diff_runs(run_a, run_b)
-        result["before"] = {"id": before_id, "title": row_a.get("title"), "collection": row_a.get("collection"), "readiness": row_a.get("readiness")}
-        result["after"] = {"id": after_id, "title": row_b.get("title"), "collection": row_b.get("collection"), "readiness": row_b.get("readiness")}
-        return result
-
     def export_corrections(self, collection: str | None, kind: str) -> str:
         """JSONL of SFT samples or DPO pairs from reviews with a turning step and correction."""
         if kind not in {"sft", "dpo"}:
@@ -1716,12 +1678,6 @@ def _summarize_record(record: dict[str, Any], clip: int = 600) -> dict[str, Any]
         "residue": [{"key": item["key"], "kind": item["kind"], "name": item["name"], "steps": item["steps"]} for item in record.get("residue") or []],
         "syncs": [{"direction": sync.get("direction"), "ok": sync.get("ok")} for sync in record.get("syncs") or []],
     }
-
-
-def _residue_count(result: dict[str, Any]) -> int:
-    """Steps with harness residue inside trained tokens."""
-    trained = (result.get("residue") or {}).get("trained") or {}
-    return len({step for steps in trained.values() for step in steps})
 
 
 def step_tokens(message: dict[str, Any]) -> dict[str, int]:
