@@ -88,10 +88,6 @@ def create_server(
                         limit=self._int(query, "limit", 100),
                     )
                 )
-            if path == "/api/rewrites":
-                return self._json(service.rewrite_pairs(one("before") or "", one("after") or ""))
-            if path == "/api/rewrite-diff":
-                return self._json(service.rewrite_diff(one("before") or "", one("after") or ""))
             if path == "/api/corrections/export":
                 kind = one("kind") or "sft"
                 body = service.export_corrections(one("collection") or None, kind).encode("utf-8")
@@ -126,6 +122,23 @@ def create_server(
                 return self._json(service.compare(ids))
             if path == "/api/jobs":
                 return self._json({"jobs": service.jobs.list()})
+            if path == "/api/rewrite-batches":
+                return self._json(service.rewrite_batches())
+            raw = self._raw_parts()
+            if len(raw) >= 3 and raw[:2] == ["api", "rewrite-batches"]:
+                if len(raw) == 3:
+                    return self._json(service.rewrite_batch_records(raw[2]))
+                if len(raw) == 4 and raw[3] == "overview":
+                    return self._json(service.rewrite_overview(raw[2]))
+                if len(raw) == 4 and raw[3] == "changes":
+                    return self._json(service.rewrite_changes(
+                        raw[2],
+                        **{key: one(key) for key in ("status", "category", "warning", "kind", "source", "ref", "recorded", "sample") if one(key)},
+                        offset=self._int(query, "offset", 0),
+                        limit=self._int(query, "limit", 40),
+                    ))
+                if len(raw) == 5 and raw[3] == "records":
+                    return self._json(service.rewrite_record(raw[2], raw[4]))
             parts = [part for part in path.split("/") if part]
             if len(parts) == 3 and parts[:2] == ["api", "jobs"]:
                 return self._json(service.jobs.get(parts[2]))
@@ -229,6 +242,25 @@ def create_server(
                     ),
                     status=HTTPStatus.ACCEPTED,
                 )
+            if path == "/api/rewrite-batches":
+                fields = {key: payload.get(key) for key in ("name", "original", "rewritten", "rewritten_path", "annotations")}
+                if any(value is not None and not isinstance(value, str) for value in fields.values()):
+                    raise ValueError("name, original, rewritten, rewritten_path and annotations must be strings")
+                fields = {key: value.strip() for key, value in fields.items() if value and value.strip()}
+                for key in ("rewritten_path", "annotations"):
+                    if key in fields and not Path(fields[key]).is_absolute():
+                        raise ValueError(f"{key} must be an absolute path")
+                return self._json(service.start_rewrite_batch(**fields), status=HTTPStatus.ACCEPTED)
+            raw = self._raw_parts()
+            if len(raw) == 4 and raw[:2] == ["api", "rewrite-batches"]:
+                if raw[3] == "settings":
+                    return self._json(service.set_rewrite_settings(raw[2], payload))
+                if raw[3] == "export":
+                    return self._json(service.start_rewrite_export(raw[2], str(payload.get("name") or "")), status=HTTPStatus.ACCEPTED)
+                if raw[3] == "scan":
+                    return self._json(service.start_rewrite_scan(raw[2]), status=HTTPStatus.ACCEPTED)
+            if len(raw) == 6 and raw[:2] == ["api", "rewrite-batches"] and raw[3] == "records" and raw[5] == "verdicts":
+                return self._json(service.save_rewrite_verdict(raw[2], raw[4], payload))
             parts = [part for part in path.split("/") if part]
             if len(parts) == 4 and parts[:2] == ["api", "trajectories"]:
                 trajectory_id, action = parts[2], parts[3]
@@ -259,6 +291,10 @@ def create_server(
             raise KeyError(self.path)
 
         # -- helpers --------------------------------------------------------------------
+
+        def _raw_parts(self) -> list[str]:
+            # Split before decoding, so an encoded "/" inside a sample id stays in its part.
+            return [unquote(part) for part in urlsplit(self.path).path.split("/") if part]
 
         def _body_json(self) -> dict[str, Any]:
             # Every POST must declare JSON, even without a body: a page served from /files/

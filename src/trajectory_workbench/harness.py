@@ -61,6 +61,7 @@ STOCK_SECTIONS: dict[str, set[str]] = {
         "professional objectivity", "planning without timelines", "asking questions as you work",
         "language", "system reminders", "committing changes with git", "creating pull requests",
         "other common operations", "looking up your own documentation",
+        "text output (does not apply to tool calls)",
     },
 }
 SKILL_TOOLS = {"skill", "use_skill", "load_skill"}
@@ -137,6 +138,15 @@ def _sections(text: str) -> list[tuple[str, str]]:
             lines.append(line)
     parts.append((heading, "\n".join(lines)))
     return parts
+
+
+def system_sections(run: Any) -> list[tuple[str, str]]:
+    """The system prompt as (level-1 heading, body) pairs."""
+    return _sections(_system_text(run))
+
+
+def stock_section(base: str | None, heading: str) -> bool:
+    return heading.casefold() in STOCK_SECTIONS.get(base or "", set())
 
 
 def added_instructions(run: Any, base: str | None) -> list[dict[str, Any]]:
@@ -274,9 +284,15 @@ def _custom_subagent(tool: dict[str, Any], base: str | None) -> str | None:
     return None
 
 
-def _terms(component: dict[str, Any], basenames: set[str]) -> set[str]:
+# A file stem distinctive enough to stand for the file (`huasheng-editorial-scenes` for
+# `architectures/huasheng-editorial-scenes.json`): has a separator and some length.
+DISTINCT_STEM = re.compile(r"^(?=.{8,}$)[\w]+(?:[-_][\w]+)+$")
+
+
+def _terms(component: dict[str, Any], basenames: set[str], stems: bool = False) -> set[str]:
     """Names by which a component can be referred to in text (none for instructions:
-    citing a rule is judged semantically, not by matching its heading)."""
+    citing a rule is judged semantically, not by matching its heading). With `stems`, a
+    harness file also answers to its distinctive stem, as cards are often named."""
     kind, name = component["kind"], component["name"]
     if kind == "mcp":
         terms = {name} | set(component.get("tools", [])) | {tool.split("__")[-1] for tool in component.get("tools", [])}
@@ -287,10 +303,20 @@ def _terms(component: dict[str, Any], basenames: set[str]) -> set[str]:
         base = name.rsplit("/", 1)[-1]
         if base in basenames:  # only when no other harness file shares it
             terms.add(base)
+            stem = base.rsplit(".", 1)[0]
+            if stems and DISTINCT_STEM.match(stem):
+                terms.add(stem)
     else:
         return set()
     # Very short or generic words would match ordinary prose.
     return {t for t in terms if len(t) >= 5 and not t.isdigit()}
+
+
+def component_terms(components: list[dict[str, Any]], *, stems: bool = False) -> dict[str, list[str]]:
+    """Per component (`kind:name`), the names `trace` looks for in text."""
+    names = [c["name"].rsplit("/", 1)[-1] for c in components if c["kind"] == "file"]
+    unique = {name for name in names if names.count(name) == 1}
+    return {f"{c['kind']}:{c['name']}": sorted(_terms(c, unique, stems)) for c in components}
 
 
 @functools.lru_cache(maxsize=4096)
@@ -330,7 +356,7 @@ def written_files(run: Any, names: list[str]) -> set[str]:
     return written
 
 
-def trace(run: Any, found: dict[str, Any] | None = None, *, conventions: bool = False) -> dict[str, Any]:
+def trace(run: Any, found: dict[str, Any] | None = None, *, conventions: bool = False, stems: bool = False) -> dict[str, Any]:
     """Where the model's own turns (trained tokens) use the added components.
 
     Returns {base, components: [{kind, name, calls, files, mentions}], steps:
@@ -363,7 +389,7 @@ def trace(run: Any, found: dict[str, Any] | None = None, *, conventions: bool = 
     for component in components:
         if component.get("agent_output"):
             continue
-        for term in _terms(component, unique):
+        for term in _terms(component, unique, stems):
             prose_terms.setdefault(term, []).append(component)
             if component["kind"] == "file":
                 file_terms.setdefault(term, []).append(component)

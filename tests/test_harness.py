@@ -72,6 +72,11 @@ class InventoryTest(unittest.TestCase):
         instruction = next(c for c in found["components"] if c["kind"] == "instruction")
         self.assertEqual(instruction["topics"], ["Image budget", "VISUAL HIERARCHY"])
 
+    def test_newer_stock_sections_are_not_added(self) -> None:
+        # Claude Code 2.x ships this section; it was counted as a harness instruction.
+        run = build(STOCK_PROMPT + "\n# Text output (does not apply to tool calls)\nBe brief.\n", [])
+        self.assertEqual([c for c in harness.inventory(run)["components"] if c["kind"] == "instruction"], [])
+
     def test_file_the_user_asked_for_is_not_a_harness_file(self) -> None:
         run = build(STOCK_PROMPT + ADDED, [], task="Make the deck and save it as `slides.html`.")
         files = {c["name"] for c in harness.inventory(run)["components"] if c["kind"] == "file"}
