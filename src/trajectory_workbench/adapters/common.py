@@ -91,16 +91,25 @@ def anthropic_image(block: dict[str, Any]) -> dict[str, str] | None:
 
 
 CONTENT_LIST_PREFIX = re.compile(r'\[\s*\{\s*"type"\s*:')
+CONTENT_OBJECT_PREFIX = re.compile(r'\{\s*"type"\s*:')
 CONTENT_PART_TYPES = {
     "text", "image", "image_url", "input_text", "output_text", "input_image",
     "summary_text", "document", "tool_reference",
 }
+# A lone content part is only recognized when it is an image: a tool that printed
+# `{"type": "text", …}` or any other object must keep its raw output.
+LONE_CONTENT_PART_TYPES = {"image", "image_url", "input_image"}
 
 
 def decode_content(content: Any) -> Any:
     """Some exporters store a content-part list (text + base64 images) as a JSON string;
-    return the list in that case, otherwise the content unchanged."""
-    if isinstance(content, str) and CONTENT_LIST_PREFIX.match(content.lstrip()[:40]):
+    return the list in that case, otherwise the content unchanged. A single image part
+    stored the same way (Harbor's Claude Code export writes one per screenshot) is
+    returned as a one-part list."""
+    if not isinstance(content, str):
+        return content
+    head = content.lstrip()[:40]
+    if CONTENT_LIST_PREFIX.match(head):
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError:
@@ -111,7 +120,51 @@ def decode_content(content: Any) -> Any:
             isinstance(item, dict) and item.get("type") in CONTENT_PART_TYPES for item in parsed
         ):
             return parsed
+    elif CONTENT_OBJECT_PREFIX.match(head):
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            return content
+        if isinstance(parsed, dict) and parsed.get("type") in LONE_CONTENT_PART_TYPES:
+            return [parsed]
     return content
+
+
+METADATA_BLOCK = re.compile(r"\n*\[metadata\][ \t]*(\{.*)\Z", re.DOTALL)
+METADATA_KEPT_CHARS = 2000
+
+
+def split_result_metadata(text: Any) -> tuple[Any, str]:
+    """Split a tool result into its body and the trailing `[metadata] {…}` block that
+    Harbor's Claude Code export appends. Returns the text unchanged and an empty block
+    when there is no such suffix."""
+    if not isinstance(text, str):
+        return text, ""
+    match = METADATA_BLOCK.search(text)
+    if not match:
+        return text, ""
+    block = match.group(1)
+    try:
+        json.loads(block)
+    except json.JSONDecodeError:
+        return text, ""
+    return text[: match.start()], block
+
+
+def metadata_note(block: str) -> str:
+    """The metadata block as the reader should show it. A large block repeats what the
+    call already holds — a written file's content, a screenshot's base64 — so only its
+    shape is kept."""
+    if not block:
+        return ""
+    if len(block) <= METADATA_KEPT_CHARS:
+        return "[metadata] " + block
+    try:
+        parsed = json.loads(block)
+    except json.JSONDecodeError:
+        parsed = None
+    kind = parsed.get("type") if isinstance(parsed, dict) else None
+    return f"[metadata] {kind or 'object'}, {len(block)} bytes (not shown)"
 
 
 def content_text(content: Any) -> str:

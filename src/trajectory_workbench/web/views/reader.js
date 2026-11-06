@@ -6,6 +6,7 @@ import {
   PHASE_LABELS,
   ROLE_LABELS,
   WORK_LABELS,
+  formatBytes,
   formatClock,
   formatCount,
   formatDuration,
@@ -211,8 +212,26 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       : null;
     clear(
       taskCard,
-      h("div", { class: "task-main" }, h("span", { class: "eyebrow" }, "任务" + (task.id ? " · " + task.id : "")), body, toggle),
+      h("div", { class: "task-main" }, h("span", { class: "eyebrow" }, "任务" + (task.id ? " · " + task.id : "")), body, toggle, deliverableLinks(task)),
       h("dl", { class: "task-numbers" }, numbers.map(([label, value]) => h("div", {}, h("dt", {}, label), h("dd", {}, String(value ?? "—")))))
+    );
+  }
+
+  /** What the run produced, served from the run directory (sandboxed origin). */
+  function deliverableLinks(task) {
+    const files = task.deliverables || [];
+    if (!files.length) return null;
+    return h(
+      "div",
+      { class: "task-files" },
+      h("span", { class: "eyebrow" }, "产出文件"),
+      ...files.map((file) =>
+        h(
+          "a",
+          { href: api.fileUrl(trajectoryId, file.path), target: "_blank", rel: "noopener noreferrer", title: file.path },
+          file.path.split("/").pop() + (file.bytes != null ? " · " + formatBytes(file.bytes) : "")
+        )
+      )
     );
   }
 

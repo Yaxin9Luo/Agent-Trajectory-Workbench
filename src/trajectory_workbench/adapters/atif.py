@@ -20,12 +20,15 @@ from trajectory_workbench.adapters.common import (
     TranscriptBuilder,
     content_images,
     content_text,
+    decode_content,
     finish_run,
     classify_failure,
     make_outcome,
+    metadata_note,
     parse_timestamp_ms,
     read_json,
     score_status,
+    split_result_metadata,
 )
 from trajectory_workbench.models import NormalizedRun
 
@@ -39,6 +42,8 @@ def looks_like_atif(value: Any) -> bool:
 
 
 def atif_images(content: Any) -> list[dict[str, str]]:
+    # Harbor stores a content part as a JSON string; `content_images` decodes the same way.
+    content = decode_content(content)
     images: list[dict[str, str]] = []
     if not isinstance(content, list):
         return images
@@ -50,7 +55,51 @@ def atif_images(content: Any) -> list[dict[str, str]]:
     return images + content_images(content)
 
 
-def harbor_outcome(result: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+VERIFIER_NOTE_CHARS = 400
+DELIVERABLE_LIMIT = 12
+DELIVERABLE_SUFFIXES = {
+    ".html", ".htm", ".pdf", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+    ".md", ".txt", ".csv", ".json",
+}
+
+
+def verifier_note(trial: Path) -> str:
+    """What the verifier printed. `result.json` carries the reward but not the reason, so
+    a 0 reads the same whether the deliverable was bad or merely missing what the
+    verifier looks for."""
+    try:
+        text = (trial / "verifier" / "test-stdout.txt").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return " / ".join(lines[-3:])[:VERIFIER_NOTE_CHARS]
+
+
+def trial_deliverables(trial: Path) -> list[dict[str, Any]]:
+    """The files a Harbor trial kept under `artifacts/`, so the reader can open what the
+    agent produced next to the trace that produced it. Pages first, then their assets."""
+    root = trial / "artifacts"
+    if not root.is_dir():
+        return []
+    files = [
+        file
+        for file in root.rglob("*")
+        if file.is_file()
+        and file.suffix.lower() in DELIVERABLE_SUFFIXES
+        and not (file.name == "manifest.json" and file.parent == root)
+    ]
+    files.sort(key=lambda file: (file.suffix.lower() not in {".html", ".htm"}, str(file)))
+    found: list[dict[str, Any]] = []
+    for file in files[:DELIVERABLE_LIMIT]:
+        try:
+            size = file.stat().st_size
+        except OSError:
+            continue
+        found.append({"path": file.relative_to(trial).as_posix(), "bytes": size})
+    return found
+
+
+def harbor_outcome(result: dict[str, Any], note: str = "") -> tuple[dict[str, Any], str | None]:
     verifier = result.get("verifier_result") if isinstance(result.get("verifier_result"), dict) else {}
     rewards = verifier.get("rewards") if isinstance(verifier.get("rewards"), dict) else {}
     score = rewards.get("reward")
@@ -77,6 +126,8 @@ def harbor_outcome(result: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
     if exception and status != "pass":
         reason = f"{exception.get('exception_type')}: {str(exception.get('exception_message', ''))[:300]}"
         infra = classified["infra_failure"] if classified else None
+    elif note and status != "pass":
+        reason = note
     task_id = result.get("task_name")
     outcome = make_outcome(
         status,
@@ -191,7 +242,16 @@ class AtifAdapter:
                 if not isinstance(item, dict):
                     continue
                 extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
-                body = content_text(item.get("content"))
+                # Harbor's Claude Code export writes an image part, or a file-edit
+                # confirmation, followed by a `[metadata] {…}` block that repeats the
+                # payload; keeping the raw string would hide the screenshot and put
+                # megabytes of base64 into the transcript.
+                content, metadata = split_result_metadata(item.get("content"))
+                body = content_text(content)
+                images = atif_images(content)
+                note = metadata_note(metadata)
+                if note:
+                    body = (body + "\n\n" if body else "") + note
                 if item.get("subagent_trajectory_ref"):
                     refs = ", ".join(
                         str(ref.get("trajectory_id") or ref.get("trajectory_path"))
@@ -207,13 +267,18 @@ class AtifAdapter:
                     item.get("source_call_id"),
                     text=body,
                     is_error=extra["is_error"] if isinstance(extra.get("is_error"), bool) else None,
-                    images=atif_images(item.get("content")),
+                    images=images,
                 )
                 if not matched and not item.get("source_call_id"):
                     builder.add_message("system", text="[observation] " + body, offset_ms=stamp, line_number=line)
         agent = document.get("agent") if isinstance(document.get("agent"), dict) else {}
         final = document.get("final_metrics") if isinstance(document.get("final_metrics"), dict) else {}
-        outcome, task_id = harbor_outcome(result) if result else (make_outcome(), None)
+        trial = path if path.is_dir() else None
+        outcome, task_id = (
+            harbor_outcome(result, verifier_note(trial) if trial else "")
+            if result
+            else (make_outcome(), None)
+        )
         meta: dict[str, Any] = {
             "format": "atif",
             "schema": document.get("schema_version"),
@@ -240,7 +305,7 @@ class AtifAdapter:
             int(final.get(key) or 0) for key in ("total_prompt_tokens", "total_completion_tokens")
         ) or None
         run_id = str(document.get("trajectory_id") or document.get("session_id") or path.stem)
-        return finish_run(
+        run = finish_run(
             builder,
             adapter_id=self.adapter_id,
             source_path=path,
@@ -252,3 +317,7 @@ class AtifAdapter:
             available_tools=available,
             extra_metrics={"total_cost_usd": final.get("total_cost_usd"), "total_tokens": tokens},
         )
+        deliverables = trial_deliverables(trial) if trial else []
+        if deliverables:
+            run.task["deliverables"] = deliverables
+        return run

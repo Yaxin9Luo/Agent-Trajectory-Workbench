@@ -373,3 +373,40 @@ def make_harbor_trial(root: Path, reward: float, exception_type: str | None = No
         result["exception_info"] = {"exception_type": exception_type, "exception_message": "boom"}
     write_json(root / "result.json", result)
     return root
+
+
+def make_harbor_cc_trial(root: Path, *, reward: float = 0.0, verifier_stdout: str = "") -> Path:
+    """A Harbor trial run by the Claude Code agent: a screenshot arrives as one JSON
+    content part with a `[metadata]` block appended that repeats the payload, and the
+    deliverable is kept under `artifacts/`."""
+    document = atif_document()
+    part = json.dumps({"type": "image", "source": {"type": "base64", "data": PNG_BASE64, "media_type": "image/png"}})
+    # The real export repeats the base64 in the metadata, which is what makes the block big.
+    metadata = json.dumps({"type": "image", "file": {"base64": PNG_BASE64 * 40, "type": "image/png"}})
+    document["steps"].append({
+        "step_id": 5, "source": "agent", "message": "", "timestamp": "2026-09-03T00:00:07Z",
+        "tool_calls": [{"tool_call_id": "call-2", "function_name": "Read", "arguments": {"file_path": "/tmp/shot.png"}}],
+        "observation": {"results": [{"source_call_id": "call-2", "content": part + "\n\n[metadata] " + metadata}]},
+    })
+    document["steps"].append({
+        "step_id": 6, "source": "agent", "message": "", "timestamp": "2026-09-03T00:00:09Z",
+        "tool_calls": [{"tool_call_id": "call-3", "function_name": "Write", "arguments": {"file_path": "/workspace/output/slides.html"}}],
+        "observation": {"results": [{
+            "source_call_id": "call-3",
+            "content": "File created successfully at: /workspace/output/slides.html\n\n[metadata] "
+            + json.dumps({"type": "create", "filePath": "/workspace/output/slides.html"}),
+        }]},
+    })
+    write_json(root / "agent" / "trajectory.json", document)
+    write_json(root / "result.json", {"task_name": "hello-task", "trial_name": "hello-task__1",
+                                      "verifier_result": {"rewards": {"reward": reward}}})
+    if verifier_stdout:
+        path = root / "verifier" / "test-stdout.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(verifier_stdout, encoding="utf-8")
+    page = root / "artifacts" / "logs" / "artifacts" / "slides.html"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("<!doctype html><title>deck</title>", encoding="utf-8")
+    (page.parent / "vendor.js").write_text("// asset", encoding="utf-8")
+    write_json(root / "artifacts" / "manifest.json", [{"source": "/logs/artifacts"}])
+    return root

@@ -19,6 +19,7 @@ from tests.fixtures import (
     atif_document,
     make_claude_session,
     make_codex_rollout,
+    make_harbor_cc_trial,
     make_harbor_trial,
     make_moh_run,
     make_sft_export,
@@ -198,6 +199,32 @@ class TraceLabAndAtifTest(unittest.TestCase):
         self.assertEqual(reloaded.run_id, "sub-1")
 
 
+    def test_harbor_claude_code_screenshots_verifier_reason_and_deliverables(self) -> None:
+        stdout = "CC HTML output copied to artifact directory\nexpected at least one data-slide container\n"
+        with tempfile.TemporaryDirectory() as temp:
+            trial = make_harbor_cc_trial(Path(temp) / "trial", reward=0.0, verifier_stdout=stdout)
+            run = next(run for _, run in AtifAdapter().iter_runs(trial))
+
+        read = next(tool for tool in run.tools if tool["name"] == "Read")
+        # The screenshot is an image, not 650 KB of base64 in the step text.
+        self.assertEqual(read["result"]["images"], [{"media_type": "image/png", "data": PNG_BASE64}])
+        self.assertNotIn(PNG_BASE64, read["result"]["text"])
+        self.assertIn("bytes (not shown)", read["result"]["text"])
+        # A small metadata block is still worth reading.
+        write = next(tool for tool in run.tools if tool["name"] == "Write")
+        self.assertIn("File created successfully", write["result"]["text"])
+        self.assertIn('"type": "create"', write["result"]["text"])
+        # A reward of 0 says why: result.json has the number, the verifier has the reason.
+        self.assertEqual(run.outcome["status"], "fail")
+        self.assertEqual(
+            run.outcome["reason"],
+            "CC HTML output copied to artifact directory / expected at least one data-slide container",
+        )
+        self.assertEqual(
+            [file["path"] for file in run.task["deliverables"]],
+            ["artifacts/logs/artifacts/slides.html"],
+        )
+
     def test_harbor_zero_after_a_crash_is_not_a_score(self) -> None:
         cases = {
             "NonZeroAgentExitCodeError": ("error", None),
@@ -221,6 +248,11 @@ class ReviewRegressionTest(unittest.TestCase):
 
         events = '[{"type": "PushEvent", "repo": "x"}, {"type": "WatchEvent"}]'
         self.assertEqual(content_text(events), events)
+        # A lone JSON object is only read as a content part when it is an image.
+        single = '{"type": "PushEvent", "repo": "x"}'
+        self.assertEqual(content_text(single), single)
+        text_part = '{"type": "text", "text": "hi"}'
+        self.assertEqual(content_text(text_part), text_part)
         # A JSON file that merely contains "isError": true is not a failed MCP call…
         self.assertFalse(infer_tool_error('{"cases": [{"isError": true}]}'))
         # …but a result object right after a wrapper line is.
