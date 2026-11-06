@@ -242,3 +242,63 @@ export function lineDiff(before, after, limit = 800) {
   while (j < b.length) out.push({ op: "+", text: b[j++] });
   return out;
 }
+
+// ---- v4 reward ------------------------------------------------------------------------
+
+export const V4_LAYERS = ["L0", "L1", "L2", "L3"];
+
+/** Viewport "1920x1080" → [1920, 1080]; anything else falls back to 1920x1080. */
+export function parseViewport(text) {
+  const match = /^(\d+)x(\d+)$/.exec(String(text || ""));
+  return match ? [Number(match[1]), Number(match[2])] : [1920, 1080];
+}
+
+/**
+ * Where to cut an evidence box out of a still. Box and viewport are CSS px of the
+ * screenshot viewport; the still may be any resolution, so the result is in display px
+ * for a background sized to the whole viewport. Returns the crop window (box plus margin,
+ * clamped to the viewport), the scale, and the box inside the window.
+ */
+export function cropGeometry(box, viewport, { margin = 40, maxWidth = 360, maxHeight = 220 } = {}) {
+  const [vw, vh] = parseViewport(viewport);
+  const [x, y, w, hgt] = (box || []).map(Number);
+  if (![x, y, w, hgt].every(Number.isFinite)) return null;
+  const left = Math.max(0, Math.min(vw, x - margin));
+  const top = Math.max(0, Math.min(vh, y - margin));
+  const right = Math.max(left + 1, Math.min(vw, x + w + margin));
+  const bottom = Math.max(top + 1, Math.min(vh, y + hgt + margin));
+  const scale = Math.min(1, maxWidth / (right - left), maxHeight / (bottom - top));
+  return {
+    width: Math.round((right - left) * scale),
+    height: Math.round((bottom - top) * scale),
+    backgroundWidth: Math.round(vw * scale),
+    backgroundHeight: Math.round(vh * scale),
+    offsetX: -Math.round(left * scale) || 0,
+    offsetY: -Math.round(top * scale) || 0,
+    box: {
+      left: Math.round((x - left) * scale),
+      top: Math.round((y - top) * scale),
+      width: Math.max(1, Math.round(w * scale)),
+      height: Math.max(1, Math.round(hgt * scale)),
+    },
+    // The same box on a whole-slide thumbnail, in percent.
+    percent: { left: (x / vw) * 100, top: (y / vh) * 100, width: (w / vw) * 100, height: (hgt / vh) * 100 },
+  };
+}
+
+/** Failed items grouped by layer, L0–L3 first, unknown layers after. */
+export function groupByLayer(items) {
+  const groups = new Map(V4_LAYERS.map((layer) => [layer, []]));
+  for (const item of items || []) {
+    const layer = item.layer || "?";
+    if (!groups.has(layer)) groups.set(layer, []);
+    groups.get(layer).push(item);
+  }
+  return [...groups].filter(([, list]) => list.length).map(([layer, list]) => ({ layer, items: list }));
+}
+
+/** Short text for a reward: R with two decimals, or "masked" (masked is not zero). */
+export function formatReward(r, masked) {
+  if (masked || r === null || r === undefined || !Number.isFinite(Number(r))) return "masked";
+  return Number(r).toFixed(2);
+}

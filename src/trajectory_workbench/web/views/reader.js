@@ -22,6 +22,7 @@ import { renderLedgerPanel } from "./ledgers.js";
 import { highlighted } from "./search.js";
 import { renderMohPanels } from "./moh.js";
 import { renderReviewPanel } from "./review.js";
+import { renderV4Reward } from "./v4reward.js";
 
 const TEXT_CLIP = 6000;
 
@@ -54,6 +55,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   const header = h("header", { class: "reader-head panel" });
   const episodeStrip = renderEpisodeStrip(episode, trajectoryId, ctx);
   const taskCard = h("section", { class: "task-card panel" });
+  const v4Slot = h("div", { class: "v4-slot" });
   const signalRow = h("section", { class: "signal-row" });
   const rail = h("div", { class: "step-rail", role: "list", "aria-label": "步骤条" });
   const contextRow = h("div", { class: "track-row context-row", "aria-label": "每步上下文大小" });
@@ -98,6 +100,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     header,
     episodeStrip,
     taskCard,
+    v4Slot,
     signalRow,
     railPanel,
     h("div", { class: "work-grid" }, h("section", { class: "transcript panel" }, transcriptTools, earlier, transcript, more), side)
@@ -165,11 +168,14 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       verdict = h(
         "div",
         { class: "verdict " + outcomeTone(outcome.status) },
+        h("small", { class: "verdict-source" }, "评测脚本 verifier，不是 RL reward"),
         h("strong", {}, OUTCOME_LABELS[outcome.status] || outcome.status || "无评分"),
         h("span", {}, [outcome.score != null ? "score " + outcome.score : null, outcome.reason, outcome.source].filter(Boolean).join(" · ") || "来源未提供评分"),
         outcome.infra_failure ? chip("疑似基础设施失败", "warn") : null
       );
     }
+    // The v4 reward is a score too: in blind mode it waits for the reader's own verdict.
+    clear(v4Slot, run.v4_reward ? (state.revealed ? renderV4Reward(run.v4_reward) : h("section", { class: "panel v4-reward hidden-verdict" }, h("strong", {}, "v4 reward 已隐藏"), h("span", { class: "muted" }, " 先给出你的判断"))) : null);
     clear(
       header,
       h(

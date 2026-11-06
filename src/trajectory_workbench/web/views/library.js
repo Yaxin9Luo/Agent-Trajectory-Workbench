@@ -1,6 +1,6 @@
 import { api, pollJob } from "../api.js";
 import { chip, clear, debounce, empty, h } from "../dom.js";
-import { OUTCOME_LABELS, ROLE_LABELS, formatCount, formatDuration, outcomeTone } from "../presentation.mjs";
+import { OUTCOME_LABELS, ROLE_LABELS, formatCount, formatDuration, formatReward, outcomeTone } from "../presentation.mjs";
 
 const PAGE = 100;
 
@@ -16,6 +16,10 @@ export async function renderLibrary(root, ctx, params, still) {
     issue: params.get("issue") || "",
     jev_flag: params.get("jev_flag") || "",
     task_key: params.get("task_key") || "",
+    v4_tier: params.get("v4_tier") || "",
+    v4_errors: params.get("v4_errors") || "",
+    v4_r_min: params.get("v4_r_min") || "",
+    v4_r_max: params.get("v4_r_max") || "",
     sort: params.get("sort") || "imported",
     offset: Number(params.get("offset") || 0),
   };
@@ -126,8 +130,18 @@ export async function renderLibrary(root, ctx, params, still) {
     select("ready", [["", "训练就绪：全部"], ["1", "可直接训练"], ["0", "有阻断问题"]], "训练就绪"),
     select("issue", [["", "全部就绪问题"], ...Object.entries(taxonomy.readiness_issues || {})], "就绪问题"),
     select("view", [["episode", "按 episode（一行一次尝试）"], ["main,segment", "主轨迹+分段"], ["subagent", "只看子代理"], ["all", "全部轨迹"]], "显示单位"),
-    select("sort", [["imported", "最近导入"], ["steps", "步数最多"], ["errors", "报错最多"], ["task", "按任务分组"], ["title", "标题"]], "排序")
+    ctx.blind ? null : select("v4_tier", [["", "v4 tier：全部"], ["any", "有 v4 reward"], ["none", "没有 v4 reward"], ["masked", "masked"], ["4", "tier 4"], ["3", "tier 3"], ["2", "tier 2"], ["1", "tier 1"], ["0", "tier 0"]], "v4 reward tier"),
+    ctx.blind ? null : select("v4_errors", [["", "v4 报错：全部"], ["1", "有报错（masked / 失败阶段 / deck fault / 重试）"], ["0", "无报错"]], "v4 reward 是否有报错"),
+    ctx.blind ? null : rangeInput("v4_r_min", "R ≥"),
+    ctx.blind ? null : rangeInput("v4_r_max", "R ≤"),
+    select("sort", [["imported", "最近导入"], ["steps", "步数最多"], ["errors", "报错最多"], ["task", "按任务分组"], ["title", "标题"], ...(ctx.blind ? [] : [["v4_r", "v4 R 高→低"], ["v4_r_asc", "v4 R 低→高"], ["v4_tier", "v4 tier 高→低"], ["v4_seconds", "v4 打分耗时最长"]])], "排序")
   );
+
+  function rangeInput(name, label) {
+    const input = h("input", { type: "number", step: "0.05", class: "range-input", placeholder: label, "aria-label": "v4 " + label, value: filters[name] });
+    input.addEventListener("input", debounce(() => update({ [name]: input.value.trim(), offset: 0 }), 400));
+    return input;
+  }
 
   const table = h("div", { class: "trajectory-table panel" });
   const pager = h("div", { class: "pager" });
@@ -177,6 +191,10 @@ export async function renderLibrary(root, ctx, params, still) {
       episodes: filters.view === "episode" ? 1 : "",
       roles: filters.view === "episode" || filters.view === "all" ? "" : filters.view,
       task_key: filters.task_key,
+      v4_tier: ctx.blind ? "" : filters.v4_tier,
+      v4_errors: ctx.blind ? "" : filters.v4_errors,
+      v4_r_min: ctx.blind ? "" : filters.v4_r_min,
+      v4_r_max: ctx.blind ? "" : filters.v4_r_max,
       sort: filters.sort,
       offset: filters.offset,
       limit: PAGE,
@@ -303,10 +321,25 @@ function row(item, ctx, nested = false, episode = null) {
       h("small", {}, [item.task_id || "", nested ? "" : role, item.run_id].filter(Boolean).join(" · ")),
       episode?.summary ? h("small", { class: episode.warn ? "episode-summary warn" : "episode-summary" }, episode.summary) : null
     ),
-    h("span", { class: "cell-meta" }, h("span", {}, item.model || "—"), h("small", {}, (item.harness || item.adapter_id) + (item.duration_ms ? " · " + formatDuration(item.duration_ms) : ""))),
+    h("span", { class: "cell-meta" }, h("span", {}, item.model || "—"), h("small", {}, (item.harness || item.adapter_id) + (item.duration_ms ? " · " + formatDuration(item.duration_ms) : "")), ctx.blind ? null : v4Badge(item)),
     h("span", { class: "num" }, String(item.steps ?? "—")),
     h("span", { class: "num" + (item.tool_errors ? " bad-text" : "") }, String(item.tool_errors ?? 0)),
     h("span", { class: "chips" }, flags),
     h("span", { class: "chips" }, item.reviewed_at ? [chip("已读", "ok"), ...labels] : chip("未读", "muted"))
   );
+}
+
+/** Compact v4 reward badge: tier and R (or masked), with errors marked. */
+function v4Badge(item) {
+  if (!item.v4_label) return null;
+  const masked = item.v4_masked || item.v4_r === null || item.v4_r === undefined;
+  const tone = masked ? "warn" : item.v4_tier >= 3 ? "ok" : item.v4_tier >= 1 ? "info" : "bad";
+  const text = "v4 " + (item.v4_tier ?? "—") + " · " + formatReward(item.v4_r, masked) + (item.v4_errors ? " ⚠" : "");
+  const title = [
+    "v4 reward（" + item.v4_label + "）",
+    item.v4_tier_name ? "tier " + item.v4_tier + " " + item.v4_tier_name : null,
+    item.v4_seconds != null ? "打分 " + Number(item.v4_seconds).toFixed(0) + "s" : null,
+    item.v4_errors ? "有报错 / 重试" : null,
+  ].filter(Boolean).join(" · ");
+  return chip(text, "v4-badge " + tone, { title });
 }

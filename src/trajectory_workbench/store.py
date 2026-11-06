@@ -164,7 +164,37 @@ CREATE TABLE IF NOT EXISTS rewrite_verdicts (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (batch_id, sample_id, key, reviewer)
 );
+CREATE TABLE IF NOT EXISTS v4_rewards (
+    label TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    runs_root TEXT NOT NULL,
+    work_dir TEXT NOT NULL,
+    reward_path TEXT NOT NULL,
+    r_value REAL,
+    masked INTEGER NOT NULL DEFAULT 0,
+    tier INTEGER,
+    tier_name TEXT,
+    seconds REAL,
+    has_errors INTEGER NOT NULL DEFAULT 0,
+    payload TEXT NOT NULL,
+    imported_at TEXT NOT NULL,
+    PRIMARY KEY (label, task_id)
+);
+CREATE INDEX IF NOT EXISTS v4_rewards_task ON v4_rewards(task_id);
 """
+
+# The v4 reward of a trajectory row `t`: matched at read time by task id and source-path
+# prefix, never by trajectory id or collection, so it survives a re-import of the
+# trajectories under new ids or a new collection name. The latest import wins.
+V4_MATCH = (
+    "(SELECT w.rowid FROM v4_rewards w WHERE w.task_id = t.task_id AND "
+    "(t.path = w.runs_root OR substr(t.path, 1, length(w.runs_root) + 1) = w.runs_root || '/') "
+    "ORDER BY w.imported_at DESC, w.label LIMIT 1)"
+)
+V4_SELECT = (
+    "v.label AS v4_label, v.tier AS v4_tier, v.tier_name AS v4_tier_name, v.r_value AS v4_r, "
+    "v.masked AS v4_masked, v.seconds AS v4_seconds, v.has_errors AS v4_errors"
+)
 
 FTS_SCHEMA = (
     "CREATE VIRTUAL TABLE IF NOT EXISTS step_text USING fts5("
@@ -572,6 +602,10 @@ class Store:
         ready: bool | None = None,
         issue: str | None = None,
         jev_flag: str | None = None,
+        v4_tier: str | None = None,
+        v4_errors: bool | None = None,
+        v4_r_min: float | None = None,
+        v4_r_max: float | None = None,
         sort: str = "imported",
         offset: int = 0,
         limit: int | None = 100,
@@ -634,6 +668,24 @@ class Store:
         if group_key:
             clauses.append("t.group_key = ?")
             params.append(group_key)
+        if v4_tier == "none":
+            clauses.append("v.rowid IS NULL")
+        elif v4_tier == "any":
+            clauses.append("v.rowid IS NOT NULL")
+        elif v4_tier == "masked":
+            clauses.append("v.masked = 1")
+        elif v4_tier not in (None, ""):
+            clauses.append("v.tier = ?")
+            params.append(int(v4_tier))
+        if v4_errors is not None:
+            clauses.append("v.rowid IS NOT NULL AND v.has_errors = ?")
+            params.append(int(v4_errors))
+        if v4_r_min is not None:
+            clauses.append("v.r_value >= ?")
+            params.append(float(v4_r_min))
+        if v4_r_max is not None:
+            clauses.append("v.r_value <= ?")
+            params.append(float(v4_r_max))
         role_list = [role for role in (roles or []) if role]
         if role_list:
             clauses.append(
@@ -648,6 +700,11 @@ class Store:
             "steps": f"{steps} DESC",
             "errors": f"{errors} DESC",
             "title": "t.title",
+            # Trajectories without a v4 reward (and masked R) sort last either way.
+            "v4_r": "v.r_value IS NULL, v.r_value DESC, t.rowid",
+            "v4_r_asc": "v.r_value IS NULL, v.r_value, t.rowid",
+            "v4_tier": "v.tier IS NULL, v.tier DESC, v.r_value DESC, t.rowid",
+            "v4_seconds": "v.seconds IS NULL, v.seconds DESC, t.rowid",
             "task": "t.task_key, t.group_key, t.segment",
             "episode": "t.group_key, CASE COALESCE(t.group_role, 'main') WHEN 'main' THEN 0 WHEN 'segment' THEN 1 ELSE 2 END, t.segment, t.run_id",
         }.get(sort, "t.rowid")
@@ -659,15 +716,17 @@ class Store:
                 "MAX(x.updated_at) AS reviewed_at, x.human_status AS human_status, "
                 "json_group_array(json(x.labels)) AS label_sets FROM reviews x "
                 "JOIN trajectories m ON m.id = x.trajectory_id WHERE x.reviewer = ? GROUP BY c, ek) r "
-                "ON r.c = t.collection AND r.ek = COALESCE(t.group_key, t.id) " + where
+                "ON r.c = t.collection AND r.ek = COALESCE(t.group_key, t.id) "
+                f"LEFT JOIN v4_rewards v ON v.rowid = {V4_MATCH} " + where
             )
-            select = "t.*, r.human_status AS review_status, r.label_sets AS review_label_sets, r.reviewed_at AS reviewed_at"
+            select = "t.*, r.human_status AS review_status, r.label_sets AS review_label_sets, r.reviewed_at AS reviewed_at, " + V4_SELECT
         else:
             base = (
                 "FROM trajectories t LEFT JOIN (SELECT trajectory_id, human_status, labels, updated_at AS reviewed_at "
-                "FROM reviews WHERE reviewer = ?) r ON r.trajectory_id = t.id " + where
+                "FROM reviews WHERE reviewer = ?) r ON r.trajectory_id = t.id "
+                f"LEFT JOIN v4_rewards v ON v.rowid = {V4_MATCH} " + where
             )
-            select = "t.*, r.human_status AS review_status, r.labels AS review_labels, r.reviewed_at AS reviewed_at"
+            select = "t.*, r.human_status AS review_status, r.labels AS review_labels, r.reviewed_at AS reviewed_at, " + V4_SELECT
         with self._locked():
             total = self._db.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
             if limit is None:
@@ -742,10 +801,67 @@ class Store:
                     item[key] = json.loads(item[key])
                 except json.JSONDecodeError:
                     pass
-        for key in ("infra_failure", "ready"):
+        for key in ("infra_failure", "ready", "v4_masked", "v4_errors"):
             if item.get(key) is not None:
                 item[key] = bool(item[key])
         return item
+
+    # -- v4 rewards ------------------------------------------------------------------
+
+    def replace_v4_rewards(self, label: str, rows: list[dict[str, Any]]) -> int:
+        """Swap one label's reward rows in one transaction; other labels, trajectory rows
+        and reviews are untouched. Returns how many rows the label had before."""
+        stamp = now()
+        with self._locked():
+            removed = self._db.execute("DELETE FROM v4_rewards WHERE label = ?", (label,)).rowcount
+            self._db.executemany(
+                "INSERT INTO v4_rewards (label, task_id, runs_root, work_dir, reward_path, r_value, masked, tier, "
+                "tier_name, seconds, has_errors, payload, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        label, row["task_id"], row["runs_root"], row["work_dir"], row["reward_path"], row.get("R"),
+                        int(bool(row.get("masked"))), row.get("tier"), row.get("tier_name"), row.get("seconds"),
+                        int(bool(row.get("has_errors"))), json.dumps(row, ensure_ascii=False), stamp,
+                    )
+                    for row in rows
+                ],
+            )
+            self._db.commit()
+        return removed
+
+    def v4_reward_for(self, task_id: str | None, path: str) -> dict[str, Any] | None:
+        """The reward matching a trajectory's task id and source path (latest import)."""
+        if not task_id:
+            return None
+        with self._locked():
+            row = self._db.execute(
+                f"SELECT v.label, v.payload, v.imported_at FROM (SELECT ? AS task_id, ? AS path) t "
+                f"JOIN v4_rewards v ON v.rowid = {V4_MATCH}",
+                (task_id, path),
+            ).fetchone()
+        if row is None:
+            return None
+        return {**json.loads(row["payload"]), "label": row["label"], "imported_at": row["imported_at"]}
+
+    def trajectories_for_task(self, task_id: str) -> list[dict[str, Any]]:
+        with self._locked():
+            rows = self._db.execute("SELECT id, path FROM trajectories WHERE task_id = ?", (task_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def v4_reward(self, label: str, task_id: str) -> dict[str, Any] | None:
+        with self._locked():
+            row = self._db.execute(
+                "SELECT payload FROM v4_rewards WHERE label = ? AND task_id = ?", (label, task_id)
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def v4_labels(self) -> list[dict[str, Any]]:
+        with self._locked():
+            rows = self._db.execute(
+                "SELECT label, runs_root, COUNT(*) AS decks, SUM(masked) AS masked, MAX(imported_at) AS imported_at "
+                "FROM v4_rewards GROUP BY label, runs_root ORDER BY MAX(imported_at) DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     # -- reviews ----------------------------------------------------------------------
 

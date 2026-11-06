@@ -151,3 +151,24 @@ test("lineDiff marks removed and added lines", () => {
   ]);
   assert.equal(lineDiff("x\n".repeat(900), "y"), null);
 });
+
+test("v4 crop window keeps the box in view and clamps to the viewport", async () => {
+  const { cropGeometry, groupByLayer, formatReward, parseViewport } = await import("../src/trajectory_workbench/web/presentation.mjs");
+  assert.deepEqual(parseViewport("1366x768"), [1366, 768]);
+  assert.deepEqual(parseViewport(undefined), [1920, 1080]);
+  const small = cropGeometry([100, 200, 50, 20], "1920x1080", { margin: 40 });
+  assert.equal(small.offsetX, -60);
+  assert.equal(small.offsetY, -160);
+  assert.deepEqual(small.box, { left: 40, top: 40, width: 50, height: 20 });
+  assert.equal(small.backgroundWidth, 1920);
+  const edge = cropGeometry([0, 0, 1920, 1080], "1920x1080", { maxWidth: 192, maxHeight: 400 });
+  assert.equal(edge.width, 192);
+  assert.equal(edge.offsetX, 0);
+  assert.equal(edge.backgroundWidth, 192);
+  assert.equal(edge.percent.width, 100);
+  assert.equal(cropGeometry(["a"], "1920x1080"), null);
+  assert.deepEqual(groupByLayer([{ layer: "L3" }, { layer: "L1" }, { layer: "X" }]).map((g) => g.layer), ["L1", "L3", "X"]);
+  assert.equal(formatReward(null, false), "masked");
+  assert.equal(formatReward(0, false), "0.00");
+  assert.equal(formatReward(0.5, true), "masked");
+});

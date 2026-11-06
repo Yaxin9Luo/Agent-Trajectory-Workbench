@@ -243,7 +243,18 @@ carry a severity and whether it decided the outcome.
 ./trajectory-workbench analyze --collection "K3 SFT 0912" --limit 500   # batch Jev
 ./trajectory-workbench export out/k3-ready --collection "K3 SFT 0912" --ready-only --mode raw
 ./trajectory-workbench export-reviews > reviews.jsonl
+./trajectory-workbench import-v4-reward /path/score-root --label q38-v4 --runs-root /path/sandbox_results/Run_1106
 ```
+
+`import-v4-reward` indexes a slides-v4 scoring root (`work/<task>/reward.json`; folders
+starting with `_` are skipped) under a label; importing the same label again replaces it.
+Rewards are matched to trajectories when they are read, by task id plus a source path that
+starts with `--runs-root`, so removing and re-importing the trajectories (new ids, new
+collection name) keeps the match, and the import never changes trajectory rows or reviews.
+The reader shows the v4 reward panel (R or masked, tier, failed items by layer with evidence
+crops, stills, stage times, retries); the list gets a tier / R badge, filters and sorts.
+API: `POST /api/v4-rewards {root, label, runs_root}`, `GET /api/v4-rewards`, and
+`GET /api/v4-rewards/<label>/<task>/still?path=...` (files under that deck's work dir only).
 
 The default index is `~/.agent-trajectory-workbench/workbench.db`; an index from an older
 version is upgraded when opened (re-import a collection, or use "重新索引" on the tools

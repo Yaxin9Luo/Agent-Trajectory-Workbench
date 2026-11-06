@@ -36,6 +36,7 @@ from trajectory_workbench.ledgers import LEDGER_VERSION, build_ledgers
 from trajectory_workbench.models import NormalizedRun
 from trajectory_workbench.registry import Registry
 from trajectory_workbench.store import Store, now, trajectory_id
+from trajectory_workbench import v4_reward
 
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -1068,7 +1069,73 @@ class WorkbenchService:
         payload["same_task"] = self._related(row, "task_key") if row.get("task_key") else []
         payload["jev"] = self._cached_jev(trajectory_id, row)
         payload["jev_available"] = self.analyzer.available()
+        payload["v4_reward"] = self.v4_reward_for(row)
         return payload
+
+    # -- v4 rewards (slides-v4 scorer output) -------------------------------------------
+
+    def import_v4_reward(self, root: str, label: str, runs_root: str) -> dict[str, Any]:
+        """Index a scoring root's `work/<task>/reward.json` under `label`, replacing that
+        label's earlier rows. Trajectory rows and reviews are never touched: rewards are
+        matched to trajectories at read time by task id + source-path prefix."""
+        label = (label or "").strip()
+        if not label:
+            raise ValueError("label is required")
+        supplied = Path(root).expanduser()
+        if not supplied.is_absolute():
+            raise ValueError("Path must be absolute")
+        base = supplied.resolve()
+        if not base.is_dir():
+            raise ValueError(f"Path does not exist: {base}")
+        prefix = (runs_root or "").strip()
+        if not prefix.startswith("/"):
+            raise ValueError("runs_root must be an absolute path prefix")
+        # Trajectory paths are stored resolved; resolve the prefix too when it exists here.
+        prefix_path = Path(prefix).expanduser()
+        prefix = str(prefix_path.resolve() if prefix_path.exists() else prefix_path).rstrip("/") or "/"
+        rows, errors = v4_reward.read_root(base, prefix)
+        replaced = self.store.replace_v4_rewards(label, rows)
+        matched = sum(1 for row in rows if self._v4_matches(row["task_id"], prefix))
+        return {
+            "label": label, "root": str(base), "runs_root": prefix, "decks": len(rows), "replaced": replaced,
+            "masked": sum(1 for row in rows if row["masked"]), "matched_decks": matched, "errors": errors,
+        }
+
+    def _v4_matches(self, task_id: str, prefix: str) -> bool:
+        return any(
+            item["path"] == prefix or item["path"].startswith(prefix.rstrip("/") + "/")
+            for item in self.store.trajectories_for_task(task_id)
+        )
+
+    def v4_rewards(self) -> dict[str, Any]:
+        return {"labels": self.store.v4_labels()}
+
+    def v4_reward_for(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        reward = self.store.v4_reward_for(row.get("task_id"), row.get("path") or "")
+        if reward is None:
+            return None
+        # The reader needs neither server paths for stills (it asks the stills endpoint)
+        # nor the work dir; keep the reward.json path for reference.
+        reward.pop("work_dir", None)
+        return reward
+
+    def resolve_v4_still(self, label: str, task_id: str, relative: str) -> Path:
+        """A still under that reward's own work dir; any other path is refused."""
+        reward = self.store.v4_reward(label, task_id)
+        if reward is None:
+            raise KeyError(f"{label}/{task_id}")
+        candidate = Path(relative)
+        if not relative or candidate.is_absolute() or ".." in candidate.parts:
+            raise PermissionError("Still path must be relative to the reward's work dir")
+        if candidate.suffix.lower() not in v4_reward.STILL_SUFFIXES:
+            raise PermissionError("Only still images can be served")
+        root = Path(reward["work_dir"]).resolve()
+        resolved = (root / candidate).resolve()
+        if not resolved.is_relative_to(root):
+            raise PermissionError("Still is outside the reward's work dir")
+        if not resolved.is_file():
+            raise FileNotFoundError(relative)
+        return resolved
 
     def _related(self, row: dict[str, Any], column: str) -> list[dict[str, Any]]:
         # Other attempts at the same task, one row per episode, across all collections.

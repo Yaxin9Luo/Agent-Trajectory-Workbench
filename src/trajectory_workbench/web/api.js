@@ -75,6 +75,8 @@ export const api = {
   correctionsUrl: (collection, kind) => API_ROOT + "/corrections/export" + query({ collection, kind }),
   job: (jobId) => request("/jobs/" + id(jobId)),
   exportUrl: (collection) => API_ROOT + "/reviews/export" + query({ collection }),
+  v4StillUrl: (label, taskId, relativePath) =>
+    API_ROOT + "/v4-rewards/" + id(label) + "/" + id(taskId) + "/still" + query({ path: relativePath }),
   fileUrl: (trajectoryId, relativePath) =>
     API_ROOT + "/trajectories/" + id(trajectoryId) + "/files/" + relativePath.split("/").map(encodeURIComponent).join("/"),
 };

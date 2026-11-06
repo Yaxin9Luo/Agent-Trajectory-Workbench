@@ -83,6 +83,10 @@ def create_server(
                         ready=None if one("ready") in (None, "") else one("ready") == "1",
                         issue=one("issue") or None,
                         jev_flag=one("jev_flag") or None,
+                        v4_tier=one("v4_tier") or None,
+                        v4_errors=None if one("v4_errors") in (None, "") else one("v4_errors") == "1",
+                        v4_r_min=self._float(query, "v4_r_min"),
+                        v4_r_max=self._float(query, "v4_r_max"),
                         sort=one("sort") or "imported",
                         offset=self._int(query, "offset", 0),
                         limit=self._int(query, "limit", 100),
@@ -124,7 +128,12 @@ def create_server(
                 return self._json({"jobs": service.jobs.list()})
             if path == "/api/rewrite-batches":
                 return self._json(service.rewrite_batches())
+            if path == "/api/v4-rewards":
+                return self._json(service.v4_rewards())
             raw = self._raw_parts()
+            if len(raw) == 5 and raw[:2] == ["api", "v4-rewards"] and raw[4] == "still":
+                # Only files under that reward's own work dir (see resolve_v4_still).
+                return self._file(service.resolve_v4_still(raw[2], raw[3], one("path") or ""))
             if len(raw) >= 3 and raw[:2] == ["api", "rewrite-batches"]:
                 if len(raw) == 3:
                     return self._json(service.rewrite_batch_records(raw[2]))
@@ -216,6 +225,11 @@ def create_server(
                     service.start_import(source.strip(), collection, index_text=payload.get("index_text", True) is not False),
                     status=HTTPStatus.ACCEPTED,
                 )
+            if path == "/api/v4-rewards":
+                fields = {key: payload.get(key) for key in ("root", "label", "runs_root")}
+                if any(not isinstance(value, str) or not value.strip() for value in fields.values()):
+                    raise ValueError("root, label and runs_root must be non-empty strings")
+                return self._json(service.import_v4_reward(fields["root"].strip(), fields["label"], fields["runs_root"]))
             if path == "/api/collections/reindex":
                 return self._json(service.start_reindex(str(payload.get("collection") or "")), status=HTTPStatus.ACCEPTED)
             if path == "/api/exports":
@@ -324,6 +338,15 @@ def create_server(
                 return int(query.get(name, [str(default)])[0])
             except ValueError as error:
                 raise ValueError(f"{name} must be an integer") from error
+
+        def _float(self, query: dict[str, list[str]], name: str) -> float | None:
+            value = query.get(name, [""])[0]
+            if value in ("", None):
+                return None
+            try:
+                return float(value)
+            except ValueError as error:
+                raise ValueError(f"{name} must be a number") from error
 
         def _static(self, request_path: str) -> None:
             relative = "index.html" if request_path in {"", "/"} else request_path.lstrip("/")

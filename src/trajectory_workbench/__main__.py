@@ -35,6 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip the full-text step index (saves roughly 1 KB of index per step on very large exports)",
     )
+    v4 = commands.add_parser(
+        "import-v4-reward",
+        help="index slides-v4 rewards (ROOT/work/<task>/reward.json); matched to trajectories by task id + source-path prefix",
+    )
+    v4.add_argument("root", help="scoring work root containing work/<task>/reward.json")
+    v4.add_argument("--label", required=True, help="name for this reward import; re-importing a label replaces it")
+    v4.add_argument("--runs-root", required=True, help="source-path prefix of the scored trajectories")
     commands.add_parser("list", help="list collections")
     remove = commands.add_parser(
         "remove-collection",
@@ -91,6 +98,8 @@ def main() -> None:
 
         result = service.import_path(args.path, args.collection, progress, index_text=not args.no_text_index)
         print(file=sys.stderr)
+    elif args.command == "import-v4-reward":
+        result = service.import_v4_reward(str(Path(args.root).expanduser().resolve()), args.label, args.runs_root)
     elif args.command == "analyze":
         rows = service.batch_rows(args.collection, args.limit)
 
