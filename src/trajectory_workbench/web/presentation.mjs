@@ -294,8 +294,14 @@ export function groupByLayer(items) {
     if (!groups.has(layer)) groups.set(layer, []);
     groups.get(layer).push(item);
   }
-  return [...groups].filter(([, list]) => list.length).map(([layer, list]) => ({ layer, items: list }));
+  // worst first inside a layer: the item that sets the tier leads (stable for equal severity)
+  const rank = (item) => V4_SEVERITY_RANK[item.severity] ?? 9;
+  return [...groups]
+    .filter(([, list]) => list.length)
+    .map(([layer, list]) => ({ layer, items: list.map((item, i) => [item, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([item]) => item) }));
 }
+
+const V4_SEVERITY_RANK = { invalid: 0, fatal: 1, major: 2, severe: 3, normal: 4, minor: 5 };
 
 /** Short text for a reward: R with two decimals, or "masked" (masked is not zero). */
 export function formatReward(r, masked) {

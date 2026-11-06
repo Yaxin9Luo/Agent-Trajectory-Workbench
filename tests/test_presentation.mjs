@@ -168,6 +168,8 @@ test("v4 crop window keeps the box in view and clamps to the viewport", async ()
   assert.equal(edge.percent.width, 100);
   assert.equal(cropGeometry(["a"], "1920x1080"), null);
   assert.deepEqual(groupByLayer([{ layer: "L3" }, { layer: "L1" }, { layer: "X" }]).map((g) => g.layer), ["L1", "L3", "X"]);
+  assert.deepEqual(groupByLayer([{ layer: "L1", id: "a", severity: "minor" }, { layer: "L1", id: "b", severity: "fatal" },
+    { layer: "L1", id: "c", severity: "major" }, { layer: "L1", id: "d", severity: "fatal" }])[0].items.map((i) => i.id), ["b", "d", "c", "a"]);
   assert.equal(formatReward(null, false), "masked");
   assert.equal(formatReward(0, false), "0.00");
   assert.equal(formatReward(0.5, true), "masked");
