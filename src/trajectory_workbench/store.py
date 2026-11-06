@@ -185,9 +185,11 @@ CREATE INDEX IF NOT EXISTS v4_rewards_task ON v4_rewards(task_id);
 
 # The v4 reward of a trajectory row `t`: matched at read time by task id and source-path
 # prefix, never by trajectory id or collection, so it survives a re-import of the
-# trajectories under new ids or a new collection name. The latest import wins.
+# trajectories under new ids or a new collection name. The latest import wins. A harness
+# may namespace the task id ("moh-slides/b15-cor-1601"); the reward names the bare task.
+V4_TASK = "(w.task_id = t.task_id OR substr(t.task_id, -length(w.task_id) - 1) = '/' || w.task_id)"
 V4_MATCH = (
-    "(SELECT w.rowid FROM v4_rewards w WHERE w.task_id = t.task_id AND "
+    f"(SELECT w.rowid FROM v4_rewards w WHERE {V4_TASK} AND "
     "(t.path = w.runs_root OR substr(t.path, 1, length(w.runs_root) + 1) = w.runs_root || '/') "
     "ORDER BY w.imported_at DESC, w.label LIMIT 1)"
 )
@@ -845,7 +847,10 @@ class Store:
 
     def trajectories_for_task(self, task_id: str) -> list[dict[str, Any]]:
         with self._locked():
-            rows = self._db.execute("SELECT id, path FROM trajectories WHERE task_id = ?", (task_id,)).fetchall()
+            rows = self._db.execute(
+                "SELECT id, path FROM trajectories WHERE task_id = ? OR substr(task_id, -length(?) - 1) = '/' || ?",
+                (task_id, task_id, task_id),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def v4_reward(self, label: str, task_id: str) -> dict[str, Any] | None:

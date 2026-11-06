@@ -109,6 +109,19 @@ class V4RewardTest(unittest.TestCase):
         self.assertTrue(masked["masked"])
         self.assertEqual(masked["unknown"][0]["reason"], "render failed")
 
+    def test_namespaced_task_id_matches_the_bare_reward_id(self) -> None:
+        # Harbor's task_name carries the benchmark namespace ("moh-slides/<task>"); the reward
+        # folder is the bare task id. A different task that only ends in the same letters does not match.
+        ns = self.base / "ns"
+        make_trial(ns / "deck-a__1", "moh-slides/deck-a")
+        make_trial(ns / "xdeck-a__1", "moh-slides/xdeck-a")
+        self.service.import_path(str(ns), "Namespaced")
+        report = self.service.import_v4_reward(str(self.score), "v1", str(ns))
+        self.assertEqual(report["matched_decks"], 1)
+        rows = self.by_path(self.items(limit=100))
+        self.assertEqual(rows["ns/deck-a__1"]["v4_r"], 0.75)
+        self.assertIsNone(rows["ns/xdeck-a__1"].get("v4_r"))
+
     def test_filters_and_sorting(self) -> None:
         self.service.import_path(str(self.runs), "Runs")
         self.service.import_v4_reward(str(self.score), "v1", str(self.runs))
