@@ -234,11 +234,21 @@ def create_server(
                 return self._json(service.start_reindex(str(payload.get("collection") or "")), status=HTTPStatus.ACCEPTED)
             if path == "/api/exports":
                 filters = payload.get("filters") if isinstance(payload.get("filters"), dict) else {}
-                allowed = {"collection", "outcome", "flag", "label", "search", "task_key", "group_key", "roles", "episodes", "ready", "issue", "jev_flag", "reviewed"}
+                allowed = {"collection", "outcome", "flag", "label", "search", "task_key", "group_key", "roles", "episodes", "ready", "issue", "jev_flag", "reviewed", "v4_tier", "v4_errors", "v4_r_min", "v4_r_max"}
                 clean = {key: value for key, value in filters.items() if key in allowed}
                 if isinstance(clean.get("roles"), str):
                     clean["roles"] = [item for item in clean["roles"].split(",") if item]
-                for key in ("episodes", "ready", "reviewed"):
+                for key in ("v4_r_min", "v4_r_max"):
+                    if clean.get(key) in (None, ""):
+                        clean.pop(key, None)
+                    else:
+                        try:
+                            clean[key] = float(clean[key])
+                        except (TypeError, ValueError) as error:
+                            raise ValueError(f"{key} must be a number") from error
+                if not clean.get("v4_tier"):
+                    clean.pop("v4_tier", None)
+                for key in ("episodes", "ready", "reviewed", "v4_errors"):
                     if key in clean and clean[key] not in (None, ""):
                         clean[key] = clean[key] in (True, 1, "1", "true")
                     else:

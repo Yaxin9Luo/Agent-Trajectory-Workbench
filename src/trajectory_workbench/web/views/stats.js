@@ -230,7 +230,7 @@ function confusionTable(confusion) {
         h("td", {}, OUTCOME_LABELS[grader] || grader),
         humans.map((human) => {
           const value = confusion[grader]?.[human] || 0;
-          const off = (grader === "pass" && (human === "fail" || human === "partial")) || (grader === "fail" && human === "pass");
+          const off = (grader === "pass" && (human === "fail" || human === "partial")) || ((grader === "fail" || grader === "error") && human === "pass");
           return h("td", { class: "num" + (off && value ? " bad-cell" : "") }, String(value));
         })
       )

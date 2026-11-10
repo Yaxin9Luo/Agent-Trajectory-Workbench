@@ -696,6 +696,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       state.onlyHighlighted = false;
       renderTranscriptTools();
       await loadMessages(Math.max(0, step - 1 - 20), "replace");
+      if (!still()) return;
       target = document.getElementById("step-" + step);
     }
     if (!target) return;
@@ -717,6 +718,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     history.replaceState(null, "", "#/t/" + encodeURIComponent(trajectoryId) + "?step=" + article.dataset.step);
   }
 
+  let paging = false; // a held key must not start a page load per key press
   async function moveFocus(direction, predicate = () => true) {
     const articles = [...transcript.querySelectorAll("article.message")];
     if (!articles.length) return;
@@ -725,12 +727,30 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       index += direction;
       if (index >= articles.length) {
         if (!more.querySelector("button")) return;
-        await loadMessages(windowEnd, "append");
+        // A load dropped as stale (a second key press, or the view was left) adds nothing:
+        // stop instead of asking for the same page again forever.
+        if (paging) return;
+        const before = windowEnd;
+        paging = true;
+        try {
+          await loadMessages(windowEnd, "append");
+        } finally {
+          paging = false;
+        }
+        if (!still() || windowEnd === before) return;
         return moveFocus(direction, predicate);
       }
       if (index < 0) {
         if (!earlier.querySelector("button")) return;
-        await loadMessages(Math.max(0, windowStart - PAGE), "prepend", Math.min(PAGE, windowStart));
+        if (paging) return;
+        const before = windowStart;
+        paging = true;
+        try {
+          await loadMessages(Math.max(0, windowStart - PAGE), "prepend", Math.min(PAGE, windowStart));
+        } finally {
+          paging = false;
+        }
+        if (!still() || windowStart === before) return;
         return moveFocus(direction, predicate);
       }
       if (predicate(articles[index])) return focusStep(articles[index]);

@@ -12,7 +12,7 @@ inside large JSONL files) in a SQLite database and reads transcripts on demand.
 Requires Python 3.11+. Install with `uv sync` (or `pip install -e .`).
 
 ```bash
-cd /Users/yaxinluo/Desktop/Agent-Trajectory-Workbench
+cd Agent-Trajectory-Workbench
 uv run ./trajectory-workbench serve
 ```
 
@@ -92,7 +92,7 @@ and member role. Tick two rows to compare.
   load on demand; compact mode (one line per step); training view (trained tokens of the
   model's own turns highlighted, context dimmed);
 - keyboard: `j/k` steps, `J/K` model steps, `n/p` highlighted steps, `e/E` tool errors,
-  `t` turning point, `a` annotate, `c` compact, `o` expand, `/` search, `[ ]` queue;
+  `t` turning point, `a` annotate, `c` compact, `o` expand, `/` search, `[ ]` queue, `?` this list;
 - per-step annotations (with a label) and a Markdown excerpt of chosen steps;
 - **分析** tab: Jev step analysis, what the harness added (below), training readiness,
   other attempts at the same task, tool catalog, MoH panels; **台账** tab: requirement, compaction, delegation, plan/todo
@@ -243,6 +243,8 @@ carry a severity and whether it decided the outcome.
 ./trajectory-workbench analyze --collection "K3 SFT 0912" --limit 500   # batch Jev
 ./trajectory-workbench export out/k3-ready --collection "K3 SFT 0912" --ready-only --mode raw
 ./trajectory-workbench export-reviews > reviews.jsonl
+./trajectory-workbench export-jev "K3 SFT 0912" jev.jsonl --url-base http://host:8416   # Jev results, one line per trajectory
+./trajectory-workbench remove-collection "K3 SFT 0912"          # reports what would go; add --yes to delete from the index
 ./trajectory-workbench import-v4-reward /path/score-root --label q38-v4 --runs-root /path/sandbox_results/Run_1106
 ```
 
@@ -261,7 +263,7 @@ version is upgraded when opened (re-import a collection, or use "重新索引" o
 page, to fill in fields added later). Optional environment variables:
 `TRAJECTORY_WORKBENCH_REVIEWER` (review owner, default: account name),
 `TRAJECTORY_WORKBENCH_JEV_MODEL` (pin a Jev version), `TRAJECTORY_WORKBENCH_JEV_CONCURRENCY`
-(default 8), `TRAJECTORY_WORKBENCH_MAX_SEQ_LEN`, `TRAJECTORY_WORKBENCH_EXPORT_ROOT`.
+(default 8), `TRAJECTORY_WORKBENCH_JEV_TIMEOUT` (seconds per request, default 60), `TRAJECTORY_WORKBENCH_MAX_SEQ_LEN`, `TRAJECTORY_WORKBENCH_EXPORT_ROOT`.
 
 The server has no login: bind it to 127.0.0.1, or on a shared machine only on a network
 you trust. POST requests must be `application/json`, and run artifacts under `/files/`

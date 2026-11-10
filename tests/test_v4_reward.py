@@ -212,9 +212,11 @@ class V4RewardTest(unittest.TestCase):
                 with self.subTest(bad=bad), self.assertRaises(urllib.error.HTTPError) as caught:
                     urllib.request.urlopen(url + "/api/v4-rewards/v1/deck-a/still?path=" + urllib.parse.quote(bad), timeout=5)
                 self.assertEqual(caught.exception.code, 403)
+                caught.exception.close()
             with self.assertRaises(urllib.error.HTTPError) as caught:
                 urllib.request.urlopen(url + "/api/trajectories?v4_r_min=abc", timeout=5)
             self.assertEqual(caught.exception.code, 400)
+            caught.exception.close()
         finally:
             server.shutdown()
             server.server_close()

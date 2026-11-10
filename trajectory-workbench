@@ -1,3 +1,6 @@
 #!/bin/sh
 PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m trajectory_workbench "$@"
+# The project environment has the TypeSafe SDK; a bare python3 usually does not.
+PYTHON=python3
+[ -x "$PROJECT_DIR/.venv/bin/python" ] && PYTHON="$PROJECT_DIR/.venv/bin/python"
+PYTHONPATH="$PROJECT_DIR/src${PYTHONPATH:+:$PYTHONPATH}" exec "$PYTHON" -m trajectory_workbench "$@"

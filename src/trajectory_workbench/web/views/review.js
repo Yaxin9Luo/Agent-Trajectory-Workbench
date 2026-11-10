@@ -16,12 +16,17 @@ export function renderReviewPanel(slot, reader) {
   let review = { labels: [], ...(state.review || {}) };
   const status = h("span", { class: "save-status" });
 
+  // Text typed but not yet sent (the debounce below): a save from another control returns
+  // the server's older text, which must not replace what is on screen.
+  const unsent = new Set();
   const saveNow = async (fields) => {
+    Object.keys(fields).forEach((key) => unsent.delete(key));
     Object.assign(review, fields);
     status.textContent = "保存中…";
     try {
       const saved = await api.saveReview(run.id, { ...fields, blind: ctx.blind || review.blind });
-      review = { ...review, ...saved };
+      const typed = Object.fromEntries([...unsent].map((key) => [key, review[key]]));
+      review = { ...review, ...saved, ...typed };
       reader.onReview(review);
       status.textContent = "已保存 " + new Date().toLocaleTimeString();
     } catch (error) {
@@ -46,6 +51,7 @@ export function renderReviewPanel(slot, reader) {
     element.addEventListener("input", () => {
       // Keep local state current so a re-render from another control keeps the text.
       review[field] = element.value;
+      unsent.add(field);
       saveLater({ [field]: element.value });
     });
     return element;

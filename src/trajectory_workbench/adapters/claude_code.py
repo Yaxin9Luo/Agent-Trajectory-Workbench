@@ -166,7 +166,8 @@ class ClaudeCodeAdapter:
                     )
                     last_assistant = None
                 continue
-            meta.setdefault("session_id", row.get("sessionId") or row.get("session_id"))
+            if not meta.get("session_id"):
+                meta["session_id"] = row.get("sessionId") or row.get("session_id")
             if row.get("isSidechain") and row.get("agentId"):
                 meta.setdefault("agent_id", row["agentId"])
             if row.get("version") and "harness_version" not in meta:
@@ -228,7 +229,8 @@ class ClaudeCodeAdapter:
                 continue
 
             if kind == "result":
-                cost = row.get("total_cost_usd", cost)
+                if isinstance(row.get("total_cost_usd"), (int, float)):
+                    cost = row["total_cost_usd"]
                 usage = row.get("usage") if isinstance(row.get("usage"), dict) else {}
                 if usage:
                     tokens = sum(

@@ -440,10 +440,9 @@ def trace(run: Any, found: dict[str, Any] | None = None, *, conventions: bool = 
             text = (tool.get("result") or {}).get("text") or ""
             if owner is None or not text:
                 continue
-            earlier = "\n".join(seen_text)
             for match in OUTPUT_PATH.finditer(text[:20000]):
                 path = match.group(1)
-                if len(path) >= 5 and path not in earlier and path not in file_terms and path not in outputs:
+                if len(path) >= 5 and path not in file_terms and path not in outputs and not any(path in seen for seen in seen_text):
                     outputs[path] = [owner]
     rows = []
     totals: dict[str, set[int]] = {how: set() for how in USES}
@@ -475,24 +474,6 @@ def step_evidence(found: dict[str, Any]) -> dict[int, list[str]]:
             for step in component.get(how, []):
                 lines.setdefault(step, []).append(f"{component['kind']} `{component['name']}`: {EVIDENCE[how]}")
     return lines
-
-
-def merge(*founds: dict[str, Any]) -> dict[str, Any]:
-    """One inventory from several (a rewrite judged against what the original had)."""
-    components: dict[tuple[str, str], dict[str, Any]] = {}
-    for found in founds:
-        for component in found["components"]:
-            item = components.setdefault((component["kind"], component["name"]), {"kind": component["kind"], "name": component["name"]})
-            for key in ("tools", "topics"):
-                if component.get(key):
-                    item[key] = sorted(set(item.get(key, [])) | set(component[key]))
-    base = next((found["base"] for found in founds if found.get("base")), None)
-    return {"base": base, "components": list(components.values())}
-
-
-def used_steps(found: dict[str, Any]) -> int:
-    """Trained steps that use any added component, from a trace."""
-    return len({step for steps in found.get("steps", {}).values() for step in steps})
 
 
 def describe(used: list[dict[str, Any]], limit: int = 5) -> str:

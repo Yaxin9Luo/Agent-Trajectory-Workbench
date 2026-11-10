@@ -49,7 +49,7 @@ export async function renderOverview(root, ctx, batchId, params, still) {
     card("改动", f.changes, "流水线记录 " + f.annotated + " · 工具调用 " + f.tool_changes, queueHref(batchId, { status: "all" })),
     card("没记录的文字改动", f.unrecorded, f.explained ? "另有 " + f.explained + " 处随摘要同步" : "流水线没解释的", queueHref(batchId, { status: "all", recorded: "no" })),
     card("带警告", f.warned, "校验器标的", queueHref(batchId)),
-    card("残留", f.residue_items, f.residue_records + " 条记录", "#rb-records?residue"),
+    card("残留", f.residue_items, f.residue_records + " 条记录", batchHref(batchId, "?residue")),
     card("摘要不同步", f.sync_broken, "条记录"),
     card("已判", f.judged, "错 " + f.errors + " · 漏改 " + f.misses, queueHref(batchId, { status: "judged" })),
     h(

@@ -74,6 +74,10 @@ export async function renderLibrary(root, ctx, params, still) {
             jev_flag: filters.jev_flag,
             search: filters.search,
             task_key: filters.task_key,
+            v4_tier: ctx.blind ? "" : filters.v4_tier,
+            v4_errors: ctx.blind ? "" : filters.v4_errors,
+            v4_r_min: ctx.blind ? "" : filters.v4_r_min,
+            v4_r_max: ctx.blind ? "" : filters.v4_r_max,
             episodes: filters.view === "episode" ? 1 : "",
             roles: filters.view === "episode" || filters.view === "all" ? "" : filters.view,
           },
@@ -195,7 +199,7 @@ export async function renderLibrary(root, ctx, params, still) {
       v4_errors: ctx.blind ? "" : filters.v4_errors,
       v4_r_min: ctx.blind ? "" : filters.v4_r_min,
       v4_r_max: ctx.blind ? "" : filters.v4_r_max,
-      sort: filters.sort,
+      sort: ctx.blind && filters.sort.startsWith("v4_") ? "imported" : filters.sort,
       offset: filters.offset,
       limit: PAGE,
     });
@@ -269,7 +273,7 @@ function episodeRow(item, ctx) {
   return h(
     "div",
     { class: "episode" },
-    row({ ...item, steps: episode.steps, tool_errors: episode.tool_errors, flags: episode.flags }, ctx, false, {
+    row({ ...item, steps: episode.steps, tool_errors: episode.tool_errors, flags: episode.flags, duration_ms: episode.duration_ms ?? item.duration_ms }, ctx, false, {
       toggle,
       summary: parts.join(" · "),
       warn: Boolean(episode.missing_segments?.length || episode.head_missing),

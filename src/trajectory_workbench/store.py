@@ -539,16 +539,6 @@ class Store:
             rows = self._db.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
-    def text_indexed(self, trajectory_ids: list[str]) -> set[str]:
-        if not trajectory_ids:
-            return set()
-        with self._locked():
-            rows = self._db.execute(
-                f"SELECT DISTINCT trajectory_id FROM step_rows WHERE trajectory_id IN ({', '.join('?' for _ in trajectory_ids)})",
-                trajectory_ids,
-            ).fetchall()
-        return {row[0] for row in rows}
-
     def remove_collection(self, collection: str) -> dict[str, int]:
         """Delete a collection from the index: its trajectory rows, sources, text index,
         Jev results, annotations and reviews. Source files are never touched."""
@@ -633,10 +623,14 @@ class Store:
             # Steps Jev flagged; for an episode, in any member (segments, subagents).
             flagged = "json_extract(m.jev_summary, '$.flag_counts.\"' || ? || '\"') > 0"
             if episodes:
+                # Two branches instead of COALESCE(group_key, id) on both sides, which no
+                # index can serve (20k rows: 33 s -> 0.01 s).
                 clauses.append(
-                    "EXISTS (SELECT 1 FROM trajectories m WHERE m.collection = t.collection "
-                    "AND COALESCE(m.group_key, m.id) = COALESCE(t.group_key, t.id) AND " + flagged + ")"
+                    "(EXISTS (SELECT 1 FROM trajectories m WHERE t.group_key IS NOT NULL AND m.collection = t.collection "
+                    "AND m.group_key = t.group_key AND " + flagged + ") "
+                    "OR EXISTS (SELECT 1 FROM trajectories m WHERE t.group_key IS NULL AND m.id = t.id AND " + flagged + "))"
                 )
+                params.append(jev_flag)
             else:
                 clauses.append("EXISTS (SELECT 1 FROM trajectories m WHERE m.id = t.id AND " + flagged + ")")
             params.append(jev_flag)
@@ -885,26 +879,29 @@ class Store:
         return item
 
     def save_review(self, trajectory_id: str, reviewer: str, fields: dict[str, Any]) -> dict[str, Any]:
-        existing = self.get_review(trajectory_id, reviewer) or {}
-        merged = {key: existing.get(key) for key in REVIEW_FIELDS}
-        merged.update({key: value for key, value in fields.items() if key in REVIEW_FIELDS})
-        merged["labels"] = json.dumps(list(merged.get("labels") or []), ensure_ascii=False)
-        merged["label_details"] = json.dumps(merged.get("label_details") or {}, ensure_ascii=False)
-        merged["blind"] = int(bool(merged.get("blind")))
-        stamp = now()
+        # One lock for read-merge-write: the UI saves partial field sets, and two saves
+        # that both read first would drop each other's fields.
         with self._locked():
-            self._db.execute(
-                "INSERT INTO reviews (trajectory_id, reviewer, "
-                + ", ".join(REVIEW_FIELDS)
-                + ", created_at, updated_at) VALUES (?, ?, "
-                + ", ".join("?" for _ in REVIEW_FIELDS)
-                + ", ?, ?) ON CONFLICT(trajectory_id, reviewer) DO UPDATE SET "
-                + ", ".join(f"{key}=excluded.{key}" for key in REVIEW_FIELDS)
-                + ", updated_at=excluded.updated_at",
-                (trajectory_id, reviewer, *[merged[key] for key in REVIEW_FIELDS], existing.get("created_at") or stamp, stamp),
-            )
-            self._db.commit()
-        return self.get_review(trajectory_id, reviewer) or {}
+            existing = self.get_review(trajectory_id, reviewer) or {}
+            merged = {key: existing.get(key) for key in REVIEW_FIELDS}
+            merged.update({key: value for key, value in fields.items() if key in REVIEW_FIELDS})
+            merged["labels"] = json.dumps(list(merged.get("labels") or []), ensure_ascii=False)
+            merged["label_details"] = json.dumps(merged.get("label_details") or {}, ensure_ascii=False)
+            merged["blind"] = int(bool(merged.get("blind")))
+            stamp = now()
+            with self._locked():
+                self._db.execute(
+                    "INSERT INTO reviews (trajectory_id, reviewer, "
+                    + ", ".join(REVIEW_FIELDS)
+                    + ", created_at, updated_at) VALUES (?, ?, "
+                    + ", ".join("?" for _ in REVIEW_FIELDS)
+                    + ", ?, ?) ON CONFLICT(trajectory_id, reviewer) DO UPDATE SET "
+                    + ", ".join(f"{key}=excluded.{key}" for key in REVIEW_FIELDS)
+                    + ", updated_at=excluded.updated_at",
+                    (trajectory_id, reviewer, *[merged[key] for key in REVIEW_FIELDS], existing.get("created_at") or stamp, stamp),
+                )
+                self._db.commit()
+            return self.get_review(trajectory_id, reviewer) or {}
 
     def delete_review(self, trajectory_id: str, reviewer: str) -> None:
         with self._locked():

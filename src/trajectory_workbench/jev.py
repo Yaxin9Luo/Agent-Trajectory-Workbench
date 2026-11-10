@@ -349,7 +349,7 @@ class JevAnalyzer:
             return self._factory()
         if not os.environ.get("TYPESAFE_API_KEY"):
             raise JevUnavailable("TYPESAFE_API_KEY is not set")
-        return AsyncTypeSafeClient(model=MODEL, retry=RetryPolicy(max_retries=4), timeout=TIMEOUT)
+        return AsyncTypeSafeClient(model=MODEL, retry=RetryPolicy(max_retries=4, timeout=None), timeout=TIMEOUT)
 
     def _run(self, coroutine: Any) -> Any:
         return asyncio.run(coroutine)
@@ -412,7 +412,7 @@ class JevAnalyzer:
                 records.append({"step": message["step"], "error": str(response)[:200]})
                 continue
             model = response.model
-            tokens += response.usage.input_tokens
+            tokens += response.usage.input_tokens or 0
             answers = response.answers
             record: dict[str, Any] = {"step": message["step"], "p": {}}
             phase = answers.get("phase")
@@ -578,7 +578,7 @@ class JevAnalyzer:
         for response in responses:
             if isinstance(response, Exception):
                 continue
-            tokens += response.usage.input_tokens
+            tokens += response.usage.input_tokens or 0
             for key, probability in response.answers["match"].probabilities.items():
                 if key != "none" and probability >= 0.05:
                     scored.append((probability, key))

@@ -54,6 +54,7 @@ async function route() {
   const token = ++routeToken;
   const { parts, params } = parseHash();
   const page = parts[0] || "library";
+  if (page !== "t" && page !== "queue") ctx.queueNav = null;
   document.querySelectorAll("[data-nav]").forEach((link) => {
     const current = page === "t" ? (ctx.queueNav ? "queue" : "library") : page === "pair" ? "compare" : page;
     link.classList.toggle("active", link.dataset.nav === current);

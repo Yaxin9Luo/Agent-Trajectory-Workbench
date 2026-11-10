@@ -58,6 +58,7 @@ class TraceLabTrialAdapter:
     def iter_runs(self, path: Path) -> Iterator[tuple[dict[str, Any] | None, NormalizedRun]]:
         outcome, task_id, timing, meta = self._context(path)
         dialog = path / "dialog.jsonl"
+        seen: set[str] = set()
         with dialog.open("rb") as handle:
             index = 0
             while True:
@@ -73,7 +74,11 @@ class TraceLabTrialAdapter:
                     index += 1
                     continue
                 if isinstance(sample, dict) and looks_like_chat_sample(sample):
-                    locator = {"offset": offset, "row": index, "key": str(sample.get("id") or f"@{offset}")}
+                    # Same rule as the chat adapter: a repeated id would overwrite the first row.
+                    sample_id = str(sample.get("id") or "")
+                    key = sample_id if sample_id and sample_id not in seen else f"@{offset}"
+                    seen.add(sample_id)
+                    locator = {"offset": offset, "row": index, "key": key}
                     yield locator, self._convert(sample, path, index, outcome, task_id, timing, meta)
                 index += 1
 
