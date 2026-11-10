@@ -144,10 +144,6 @@ def _tidy(segments: list[list[str]]) -> list[list[str]]:
     return tidy
 
 
-def changed(segments: list[list[str]]) -> bool:
-    return any(segment[0] != "=" for segment in segments)
-
-
 # -- alignment ------------------------------------------------------------------------------
 
 

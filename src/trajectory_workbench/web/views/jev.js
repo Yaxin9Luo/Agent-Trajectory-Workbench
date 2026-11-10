@@ -202,7 +202,7 @@ export function renderJevPanel(slot, reader) {
         "p",
         { class: "hint" },
         (jev.steps.model || "jev") + " · " + formatCount((jev.steps.input_tokens || 0) + (task.input_tokens || 0)) + " tokens · " + (stepSummary.analyzed_steps || 0) + " 步" +
-          (jev.steps.errors ? " · " + jev.steps.errors + " 步请求失败" : "") + " · 阈值 0.5 · ",
+          (jev.steps.errors ? " · " + jev.steps.errors + " 步请求失败" : "") + " · ",
         h("button", { type: "button", class: "link-button", onclick: () => analyze(true) }, "重新分析")
       )
     );

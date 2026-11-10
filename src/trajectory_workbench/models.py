@@ -24,9 +24,6 @@ class ProbeResult:
     attempt_id: str | None = None
 
 
-OUTCOME_STATUSES = ("pass", "partial", "fail", "error", "unknown")
-
-
 @dataclass(slots=True)
 class NormalizedRun:
     """One trajectory in the format-independent shape the service and UI consume.

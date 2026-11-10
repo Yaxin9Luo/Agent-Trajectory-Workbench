@@ -44,7 +44,8 @@ IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 EXTRA_META = ("subagent_type", "description", "context_reason", "post_compaction", "spawn_depth")
 SPAWN_TOOLS = {"Agent", "Task", "spawn_agent"}
 EXPORT_ROOT = Path(os.environ.get("TRAJECTORY_WORKBENCH_EXPORT_ROOT", str(Path.home() / "trajectory-exports"))).expanduser()
-EXPORT_NAME = re.compile(r"[\w.-]{1,120}")
+# No leading dot: ".." would resolve outside the export root.
+EXPORT_NAME = re.compile(r"[\w-][\w.-]{0,119}")
 SNIPPET_TRAJECTORIES = 20
 # Index columns the list, queue and statistics need (the signals JSON, instruction and
 # per-call data are the heavy ones and are left out).
@@ -121,6 +122,11 @@ class Jobs:
     def list(self) -> list[dict[str, Any]]:
         with self._lock:
             return [dict(job) for job in self._jobs.values()]
+
+
+def _scan_usable(steps: dict[str, Any]) -> bool:
+    """False only for a step scan where requests failed and none succeeded."""
+    return not steps.get("errors") or bool((steps.get("summary") or {}).get("analyzed_steps"))
 
 
 class WorkbenchService:
@@ -314,7 +320,7 @@ class WorkbenchService:
             raise ValueError(f"Path does not exist: {supplied}")
         return self.jobs.start("import", lambda progress: self.import_path(source_path, collection, progress, index_text))
 
-    # -- rewrite diff & corrections -------------------------------------------------------
+    # -- corrections ---------------------------------------------------------------------
 
     def export_corrections(self, collection: str | None, kind: str) -> str:
         """JSONL of SFT samples or DPO pairs from reviews with a turning step and correction."""
@@ -578,6 +584,12 @@ class WorkbenchService:
             )
             for sample, summary in summaries.items()
         }
+        for sample, summary in summaries.items():
+            # Nothing was compared: never let the record through on an empty change list.
+            if summary.get("error"):
+                gates[sample]["reasons"].append({"level": "exclude", "text": "无法比较：" + summary["error"]})
+                if not any(reason["level"] == "override" for reason in gates[sample]["reasons"]):
+                    gates[sample]["decision"] = "exclude"
         return gates, verdicts
 
     def rewrite_overview(self, batch_id: str) -> dict[str, Any]:
@@ -665,7 +677,7 @@ class WorkbenchService:
         plan = (batch.get("plan") or {}).get("items") or {}
         ranked = lambda group, limit: sorted(groups[group].items(), key=lambda item: (-item[1]["total"], item[0]))[:limit]  # noqa: E731
         return {
-            "batch": {key: value for key, value in batch.items() if key != "plan"},
+            "batch": {key: value for key, value in batch.items() if key != "plan"} | {"plan_items": len(plan)},
             "funnel": funnel,
             "statuses": statuses,
             "decisions": decisions,
@@ -1589,7 +1601,12 @@ class WorkbenchService:
         try:
             if steps is None:
                 steps = self.analyzer.analyze_steps(run)
-                self.store.put_jev(trajectory_id, "steps", STEP_VERSION, fingerprint, steps.get("model"), steps.get("input_tokens"), steps)
+                # A scan in which every request failed (Jev down) is not kept, so the next
+                # open or batch retries it. A partly failed one is kept and shown with its
+                # failed-step count: a step that always fails must not re-bill the whole
+                # scan on every open.
+                if _scan_usable(steps):
+                    self.store.put_jev(trajectory_id, "steps", STEP_VERSION, fingerprint, steps.get("model"), steps.get("input_tokens"), steps)
             if task is None:
                 task = self.analyzer.analyze_task(run)
                 self.store.put_jev(trajectory_id, "task", TASK_VERSION, fingerprint, task.get("model"), task.get("input_tokens"), task)
@@ -1600,7 +1617,8 @@ class WorkbenchService:
         summary["task_ambiguity"] = (task.get("task_ambiguity") or {}).get("score")
         summary["consistency"] = outcome_consistency(task.get("final_claim"), run.outcome)
         summary["version"] = STEP_VERSION
-        self.store.set_jev_summary(trajectory_id, summary)
+        if _scan_usable(steps):
+            self.store.set_jev_summary(trajectory_id, summary)
         return {"steps": steps, "task": task, "summary": summary}
 
     def batch_rows(self, collection: str | None, limit: int, include_done: bool = False) -> list[dict[str, Any]]:

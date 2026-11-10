@@ -24,6 +24,11 @@ export function renderLedgerPanel(slot, reader, episode) {
       render(ledgers);
     } catch (error) {
       status.textContent = error.message;
+      if (!slot.contains(status)) {
+        // First load: the status line is not on the page yet. Show the error and allow a retry.
+        clear(slot, empty("读取失败：" + error.message));
+        loaded = false;
+      }
     }
   }
 

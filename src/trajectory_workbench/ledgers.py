@@ -321,7 +321,7 @@ def build_ledgers(run: Any, instruction: str | None, analyzer: Any | None) -> di
             # Without knowing which sentences are requirements nothing else can be asked.
             result["error"] = f"Jev request failed: {response}"[:300]
             return result
-        tokens += response.usage.input_tokens
+        tokens += response.usage.input_tokens or 0
         for i, text in enumerate(candidates):
             p = round(response.answers[f"c{i}"].noul, 3)
             result["requirements"][i]["p_requirement"] = p
@@ -409,7 +409,7 @@ def build_ledgers(run: Any, instruction: str | None, analyzer: Any | None) -> di
         if isinstance(response, Exception):
             failed += 1
             continue
-        tokens += response.usage.input_tokens
+        tokens += response.usage.input_tokens or 0
         answers = response.answers
         if kind == "coverage":
             for key in labels:

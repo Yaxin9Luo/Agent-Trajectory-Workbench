@@ -12,7 +12,6 @@ reward and any exception as the outcome.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -52,7 +51,9 @@ def atif_images(content: Any) -> list[dict[str, str]]:
             source = part.get("source") or {}
             if isinstance(source.get("path"), str):
                 images.append({"path": source["path"], "media_type": source.get("media_type", "")})
-    return images + content_images(content)
+    # `content_images` lists absolute paths again: keep one entry per path.
+    known = {image["path"] for image in images}
+    return images + [image for image in content_images(content) if image.get("path") not in known]
 
 
 VERIFIER_NOTE_CHARS = 400
@@ -263,14 +264,16 @@ class AtifAdapter:
                     first = next((ref for ref in item["subagent_trajectory_ref"] if isinstance(ref, dict) and ref.get("trajectory_id")), None)
                     if spawner is not None and first is not None:
                         spawner["spawned"] = f"atif:{first['trajectory_id']}"
-                matched = builder.set_result(
-                    item.get("source_call_id"),
+                if not item.get("source_call_id"):
+                    # Not the result of a call: shown as a message, not counted as an orphan.
+                    builder.add_message("system", text="[observation] " + body, offset_ms=stamp, line_number=line)
+                    continue
+                builder.set_result(
+                    item["source_call_id"],
                     text=body,
                     is_error=extra["is_error"] if isinstance(extra.get("is_error"), bool) else None,
                     images=images,
                 )
-                if not matched and not item.get("source_call_id"):
-                    builder.add_message("system", text="[observation] " + body, offset_ms=stamp, line_number=line)
         agent = document.get("agent") if isinstance(document.get("agent"), dict) else {}
         final = document.get("final_metrics") if isinstance(document.get("final_metrics"), dict) else {}
         trial = path if path.is_dir() else None

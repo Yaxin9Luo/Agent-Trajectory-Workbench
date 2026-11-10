@@ -623,9 +623,6 @@ class TranscriptBuilder:
     def last_tool(self) -> dict[str, Any] | None:
         return self.tools[-1] if self.tools else None
 
-    def orphan_results(self) -> Iterator[tuple[str, dict[str, Any]]]:
-        yield from self._pending_results.items()
-
     def timeline(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for message in self.messages:

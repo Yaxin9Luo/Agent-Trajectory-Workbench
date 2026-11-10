@@ -31,7 +31,8 @@ def raw_line(row: dict[str, Any]) -> bytes | None:
         path = path / "dialog.jsonl"
     with path.open("rb") as handle:
         handle.seek(int(locator["offset"]))
-        return handle.readline().rstrip(b"\r\n")
+        line = handle.readline()
+        return line[:-1] if line.endswith(b"\n") else line
 
 
 def chat_sample(run: Any, row: dict[str, Any]) -> dict[str, Any]:

@@ -50,7 +50,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--blue); }
 .hidden { display: none !important; }
-.mono, code { font-family: var(--mono); }
+code { font-family: var(--mono); }
 .muted { color: var(--faint); font-size: 11px; }
 .hint { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .ok-text { color: var(--green); }
@@ -560,9 +560,6 @@ pre.diff { max-height: 420px; overflow: auto; }
 .messages.training-view .message.assistant, .messages.training-view .message.tool { box-shadow: inset 3px 0 0 var(--blue); }
 .messages.training-view .tool-box details:last-of-type { opacity: .55; }
 
-  .explore-table.rewrite .explore-row > :nth-child(n+3):not(:last-child) { display: none; }
-}
-
 /* Label severity / decisive */
 .label-details { display: grid; gap: 4px; margin-top: 6px; }
 .label-detail { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; }
@@ -577,7 +574,6 @@ pre.diff { max-height: 420px; overflow: auto; }
 .rr-create label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 650; }
 .rr-create button[type=submit] { height: 32px; border: 0; border-radius: 7px; background: var(--blue); color: #fff; font-weight: 650; }
 .rr-table.rr-batches .explore-row { grid-template-columns: minmax(140px, 1fr) minmax(180px, 1.4fr) minmax(140px, 1fr) 70px 130px; color: inherit; text-decoration: none; }
-.rr-table.rr-records .explore-row { grid-template-columns: minmax(220px, 2fr) 70px 110px 90px 90px 70px 70px; color: inherit; text-decoration: none; }
 .rr-table a.explore-row:hover { background: var(--paper-2); }
 .rr-table .explore-row.rr-member strong { padding-left: 14px; font-weight: 600; }
 
@@ -736,8 +732,6 @@ mark.rr-residue { background: none; color: inherit; text-decoration: underline d
   .rr-head { flex-direction: column; }
   .rr-side-head { justify-items: start; }
   .rr-split { grid-template-columns: minmax(0, 1fr); }
-  .rr-table.rr-records .explore-row { grid-template-columns: minmax(0, 1fr) 90px 80px; }
-  .rr-table.rr-records .explore-row > :nth-child(2), .rr-table.rr-records .explore-row > :nth-child(n+5) { display: none; }
   .rr-table.rr-batches .explore-row { grid-template-columns: minmax(0, 1fr) 70px; }
   .rr-table.rr-batches .explore-row > :nth-child(2), .rr-table.rr-batches .explore-row > :nth-child(3), .rr-table.rr-batches .explore-row > :nth-child(5) { display: none; }
 }

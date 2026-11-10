@@ -26,9 +26,10 @@ ERROR_WORDS = re.compile(
 )
 PLACEHOLDERS = [
     (re.compile(r"<tool_use_error>|</tool_use_error>"), ""),
+    # Before paths: the path pattern would eat the URL from its scheme's last letter.
+    (re.compile(r"https?://\S+"), "<url>"),
     (re.compile(r"(?:[A-Za-z]:)?(?:~|\.{1,2})?/[\w.@%+~\-/]+"), "<path>"),
     (re.compile(r"\b[\w.-]+\.(?:py|js|ts|tsx|jsx|mjs|json|html|css|md|txt|png|jpg|svg|yaml|yml|toml|sh|go|rs|java)\b"), "<file>"),
-    (re.compile(r"https?://\S+"), "<url>"),
     (re.compile(r"\b0x[0-9a-fA-F]+\b|\b[0-9a-fA-F]{8,}\b"), "<hex>"),
     (re.compile(r"'[^'\n]{0,200}'|\"[^\"\n]{0,200}\"|`[^`\n]{0,200}`"), "<str>"),
     (re.compile(r"\d+(?:\.\d+)?"), "<n>"),
