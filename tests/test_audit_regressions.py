@@ -85,6 +85,26 @@ class AnalysisRegressionTest(unittest.TestCase):
             service.analyzer = JevAnalyzer(client_factory=FakeClient)
             self.assertFalse(service.analyze(row["id"])["steps"]["errors"])
 
+    def test_a_partly_failed_step_scan_is_kept_and_not_run_again(self) -> None:
+        clients: list[FakeClient] = []
+
+        def factory() -> FakeClient:
+            clients.append(FakeClient(fail_on="pytest"))
+            return clients[-1]
+
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            service = WorkbenchService(Store(base / "index.db"), analyzer=JevAnalyzer(client_factory=factory), reviewer="t")
+            self.addCleanup(service.store.close)
+            service.import_path(str(make_claude_session(base / "s.jsonl")), "Demo")
+            row = service.store.all_trajectories("Demo")[0]
+            first = service.analyze(row["id"])
+            self.assertTrue(first["steps"]["errors"])
+            made = len(clients)
+            self.assertEqual(service.analyze(row["id"])["steps"]["errors"], first["steps"]["errors"])
+            self.assertEqual(len(clients), made)
+            self.assertFalse(any(item["id"] == row["id"] for item in service.batch_rows("Demo", 100)))
+
     def test_missing_token_usage_does_not_stop_the_scan(self) -> None:
         result = JevAnalyzer(client_factory=NoUsageClient).analyze_steps(sample_run())
         self.assertEqual(result["input_tokens"], 0)

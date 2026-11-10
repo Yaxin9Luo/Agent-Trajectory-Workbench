@@ -45,7 +45,7 @@
 - [x] D8 角色/阶段配色区分度
 
 ## E. 验证与文档
-- [x] E1 单元测试（适配器、信号、Jev 假客户端、练习、服务、服务器、前端安全）— 182 Python + 16 Node（2026-11-10）
+- [x] E1 单元测试（适配器、信号、Jev 假客户端、练习、服务、服务器、前端安全）— 183 Python + 16 Node（2026-11-10）
 - [x] E2 真实样本冒烟（MoH、TraceLab、SFT、Claude Code 项目、Codex 一天的会话）
 - [x] E3 浏览器实测（桌面 + 826px 窄屏）
 - [x] E4 README 更新（含 episode、训练数据、搜索、工具与报错、改写对比、部署）
@@ -133,12 +133,12 @@
 
 ## 全项目审计（2026-11-10）
 六个 subagent 分片通读（适配器 / service·store·server / 分析模块 / 改写审阅 / 前端 / 文档·配置·测试），每条结论复现或对着代码核对后才动。
-回归测试：tests/test_audit_regressions.py（8 条，修复前全部失败）。
+回归测试：tests/test_audit_regressions.py（9 条）。
 
 ### 已修
 - [x] TraceLab 同 id 样本互相覆盖（丢一条轨迹）；Claude Code 以 summary 行开头的会话丢 episode 关联；result 行 cost 为 null 清掉已知费用
 - [x] ATIF 图片路径重复列出；没有 source_call_id 的 observation 被算成孤儿结果（样本变“未就绪”）
-- [x] Jev 步骤扫描有请求失败时不再落缓存、不再标记为已分析；usage.input_tokens 为 None 不再崩；RetryPolicy 的 30 s 总预算让超时请求从不重试 → timeout=None
+- [x] Jev 步骤扫描全部请求失败（服务不可用）时不再落缓存、不再标记为已分析（部分失败照旧缓存并提示，避免每次打开重复计费）；usage.input_tokens 为 None 不再崩；RetryPolicy 的 30 s 总预算让超时请求从不重试 → timeout=None
 - [x] 错误模板里 URL 被路径规则吃掉；raw 导出把 CRLF 改成 LF
 - [x] save_review 读-合并-写不在同一把锁里（并发保存互相丢字段）；导出名 `..` 能写到导出根目录之外
 - [x] episode 视图 + Jev 筛选的 O(N²) 子查询（2 万行 33 s → 0.01 s）

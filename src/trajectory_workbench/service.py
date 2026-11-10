@@ -124,6 +124,11 @@ class Jobs:
             return [dict(job) for job in self._jobs.values()]
 
 
+def _scan_usable(steps: dict[str, Any]) -> bool:
+    """False only for a step scan where requests failed and none succeeded."""
+    return not steps.get("errors") or bool((steps.get("summary") or {}).get("analyzed_steps"))
+
+
 class WorkbenchService:
     def __init__(
         self,
@@ -1596,9 +1601,11 @@ class WorkbenchService:
         try:
             if steps is None:
                 steps = self.analyzer.analyze_steps(run)
-                # A scan with failed requests is shown but not kept, so the next open or
-                # batch retries it (the ledgers do the same).
-                if not steps.get("errors"):
+                # A scan in which every request failed (Jev down) is not kept, so the next
+                # open or batch retries it. A partly failed one is kept and shown with its
+                # failed-step count: a step that always fails must not re-bill the whole
+                # scan on every open.
+                if _scan_usable(steps):
                     self.store.put_jev(trajectory_id, "steps", STEP_VERSION, fingerprint, steps.get("model"), steps.get("input_tokens"), steps)
             if task is None:
                 task = self.analyzer.analyze_task(run)
@@ -1610,7 +1617,7 @@ class WorkbenchService:
         summary["task_ambiguity"] = (task.get("task_ambiguity") or {}).get("score")
         summary["consistency"] = outcome_consistency(task.get("final_claim"), run.outcome)
         summary["version"] = STEP_VERSION
-        if not steps.get("errors"):
+        if _scan_usable(steps):
             self.store.set_jev_summary(trajectory_id, summary)
         return {"steps": steps, "task": task, "summary": summary}
 
