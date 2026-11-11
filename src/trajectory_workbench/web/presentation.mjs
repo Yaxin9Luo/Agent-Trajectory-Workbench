@@ -386,6 +386,25 @@ export function groupByLayer(items) {
 const V4_SEVERITY_RANK = { invalid: 0, fatal: 1, major: 2, severe: 3, normal: 4, minor: 5 };
 
 /** Short text for a reward: R with two decimals, or "masked" (masked is not zero). */
+/**
+ * The outcome a v4 reward stands for (the server's v4_reward.status has the same rule): a
+ * trajectory with a reward is judged by it, not by the harness verifier.
+ */
+export function v4Status(reward) {
+  if (!reward) return null;
+  const r = reward.R ?? reward.v4_r;
+  if (reward.masked || reward.v4_masked || r === null || r === undefined) return "unknown";
+  const tier = reward.tier ?? reward.v4_tier ?? 0;
+  return tier >= 4 ? "pass" : tier >= 2 ? "partial" : "fail";
+}
+
+/** What the agent claimed at the end against how it was judged (same rule as jev.outcome_consistency). */
+export function claimConsistency(claim, status) {
+  if (claim === "complete" && (status === "fail" || status === "error")) return "overclaim";
+  if ((claim === "failed" || claim === "partial") && status === "pass") return "underclaim";
+  return null;
+}
+
 export function formatReward(r, masked) {
   if (masked || r === null || r === undefined || !Number.isFinite(Number(r))) return "masked";
   return Number(r).toFixed(2);

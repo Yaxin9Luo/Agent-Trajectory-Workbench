@@ -1659,7 +1659,16 @@ class WorkbenchService:
 
     def stats(self, collection: str | None) -> dict[str, Any]:
         episodes, head_of = self._episodes(collection)
-        result = practice.collection_stats(episodes, list(self._episode_reviews(collection, head_of).values()), jev_version=STEP_VERSION)
+        # An episode with a v4 reward is judged by the reward, not by the harness verifier.
+        decks = self.store.v4_decks(collection)
+        judged = {deck["id"]: v4_reward.status(deck["reward"]) for deck in decks}
+        episodes = [{**row, "outcome_status": judged[row["id"]]} if row["id"] in judged else row for row in episodes]
+        reviews = [
+            {**review, "outcome_status": judged[head]} if head in judged else review
+            for head, review in self._episode_reviews(collection, head_of).items()
+        ]
+        result = practice.collection_stats(episodes, reviews, jev_version=STEP_VERSION)
+        result["v4"] = v4_reward.collection_stats(decks)
         result["readiness"] = readiness_stats(self.store.all_trajectories(collection, columns=("id", "readiness")))
         result["harness"] = harness_stats(self.store.all_trajectories(collection, columns=("id", "signals", "jev_summary")))
         result["jev"]["usage"] = self.store.jev_usage(collection)

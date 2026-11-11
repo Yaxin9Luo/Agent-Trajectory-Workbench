@@ -193,9 +193,15 @@ V4_MATCH = (
     "(t.path = w.runs_root OR substr(t.path, 1, length(w.runs_root) + 1) = w.runs_root || '/') "
     "ORDER BY w.imported_at DESC, w.label LIMIT 1)"
 )
+# The outcome a v4 reward stands for (v4_reward.status holds the same rule for Python): a
+# trajectory with a reward is judged by the reward, not by the harness's own verifier.
+V4_STATUS = (
+    "CASE WHEN v.rowid IS NULL THEN NULL WHEN v.masked THEN 'unknown' WHEN v.tier >= 4 THEN 'pass' "
+    "WHEN v.tier >= 2 THEN 'partial' ELSE 'fail' END"
+)
 V4_SELECT = (
     "v.label AS v4_label, v.tier AS v4_tier, v.tier_name AS v4_tier_name, v.r_value AS v4_r, "
-    "v.masked AS v4_masked, v.seconds AS v4_seconds, v.has_errors AS v4_errors"
+    f"v.masked AS v4_masked, v.seconds AS v4_seconds, v.has_errors AS v4_errors, {V4_STATUS} AS v4_status"
 )
 
 FTS_SCHEMA = (
@@ -616,6 +622,7 @@ class Store:
         v4_errors: bool | None = None,
         v4_r_min: float | None = None,
         v4_r_max: float | None = None,
+        v4_check: str | None = None,
         sort: str = "imported",
         offset: int = 0,
         limit: int | None = 100,
@@ -627,7 +634,7 @@ class Store:
             clauses.append("t.collection = ?")
             params.append(collection)
         if outcome:
-            clauses.append("t.outcome_status = ?")
+            clauses.append(f"COALESCE({V4_STATUS}, t.outcome_status) = ?")
             params.append(outcome)
         if episodes:
             clauses.append("t.episode_head = 1")
@@ -703,6 +710,12 @@ class Store:
         if v4_r_max is not None:
             clauses.append("v.r_value <= ?")
             params.append(float(v4_r_max))
+        if v4_check:
+            # Decks on which this reward check failed.
+            clauses.append(
+                "EXISTS (SELECT 1 FROM json_each(v.payload, '$.failed') f WHERE json_extract(f.value, '$.id') = ?)"
+            )
+            params.append(v4_check)
         role_list = [role for role in (roles or []) if role]
         if role_list:
             clauses.append(
@@ -875,6 +888,17 @@ class Store:
                 "SELECT payload FROM v4_rewards WHERE label = ? AND task_id = ?", (label, task_id)
             ).fetchone()
         return json.loads(row[0]) if row else None
+
+    def v4_decks(self, collection: str | None = None) -> list[dict[str, Any]]:
+        """The reward of every episode that has one: [{id, reward}], one per episode head."""
+        with self._locked():
+            rows = self._db.execute(
+                "SELECT t.id, v.payload FROM trajectories t "
+                f"JOIN v4_rewards v ON v.rowid = {V4_MATCH} WHERE t.episode_head = 1"
+                + (" AND t.collection = ?" if collection else ""),
+                (collection,) if collection else (),
+            ).fetchall()
+        return [{"id": row["id"], "reward": json.loads(row["payload"])} for row in rows]
 
     def v4_labels(self) -> list[dict[str, Any]]:
         with self._locked():

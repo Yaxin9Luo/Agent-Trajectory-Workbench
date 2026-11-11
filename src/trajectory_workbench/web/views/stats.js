@@ -198,7 +198,77 @@ export async function renderStats(root, ctx, still) {
       h("a", { class: "button-like", href: api.correctionsUrl(ctx.collection, "dpo"), download: "corrections-dpo.jsonl", title: t("同一上下文：修正为 chosen，原来那一步为 rejected") }, t("修正 → DPO"))
     )
   );
-  clear(root, header, kpis, h("div", { class: "stat-grid" }, readinessCard, harnessCard, signalTable, jevCard, labelCard, confusionCard, interventionCard, turningCard, dailyCard));
+  clear(root, header, kpis, rewardCard(stats.v4, ctx), h("div", { class: "stat-grid" }, readinessCard, harnessCard, signalTable, jevCard, labelCard, confusionCard, interventionCard, turningCard, dailyCard));
+}
+
+const SEVERITY_TONE = { fatal: "bad", major: "warn" };
+
+/**
+ * What the v4 rewards of the collection say together: how R is spread, and for each reward
+ * check, on how many decks it failed. A check links to the decks it failed on.
+ */
+function rewardCard(v4, ctx) {
+  if (!v4) return null;
+  if (ctx.blind) return h("section", { class: "panel stat-card" }, h("span", { class: "chip muted" }, t("盲判模式：v4 奖励统计已隐藏")));
+  const number = (value) => (value === null || value === undefined ? "—" : Number(value).toFixed(2));
+  const fact = (label, value, note) => h("div", { class: "metric" }, h("label", {}, label), h("b", {}, value), h("small", {}, note || ""));
+  const peak = Math.max(1, ...v4.histogram);
+  const severity = (row) => Object.entries(row.severities).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  return h(
+    "section",
+    { class: "panel stat-card reward-card" },
+    h(
+      "div",
+      { class: "panel-head" },
+      h("div", {}, h("h2", {}, t("v4 奖励与扣分项")), h("p", {}, t("有 v4 奖励的 episode 以奖励为准（上面的通过 / 失败也是）。下表是每个检查项在多少份 deck 上没通过，点检查项看这些轨迹。")))
+    ),
+    h(
+      "div",
+      { class: "metrics reward-metrics" },
+      fact(t("有奖励的 deck"), String(v4.decks), v4.masked ? t("{n} 份没打出分（masked）", { n: v4.masked }) : t("全部打出了分")),
+      fact(t("R 均值"), number(v4.r_mean), t("中位数 {median}", { median: number(v4.r_median) })),
+      fact(t("通过 / 部分 / 失败"), v4.statuses.pass + " / " + v4.statuses.partial + " / " + v4.statuses.fail, t("tier ≥ 4 通过，2–3 部分，更低失败")),
+      fact(t("没有扣分项的 deck"), String(v4.clean), t("占 {share}", { share: percent(v4.decks ? v4.clean / v4.decks : null) }))
+    ),
+    h(
+      "div",
+      { class: "reward-spread" },
+      h(
+        "div",
+        {},
+        h("h3", { class: "mini-title" }, t("R 的分布")),
+        h("div", { class: "histogram" }, v4.histogram.map((count, index) => h("span", { title: (index / 10).toFixed(1) + "–" + ((index + 1) / 10).toFixed(1) + ": " + count, style: { height: (count / peak) * 100 + "%" } }))),
+        h("div", { class: "histogram-axis" }, h("span", {}, "0"), h("span", {}, "0.5"), h("span", {}, "1"))
+      ),
+      h(
+        "div",
+        {},
+        h("h3", { class: "mini-title" }, "tier"),
+        h("div", { class: "bar-list" }, v4.tiers.map((item) => barRow(item.tier === "masked" ? "masked" : "tier " + item.tier + (item.name ? " · " + item.name : ""), item.count, v4.decks, "#/library?v4_tier=" + item.tier)))
+      )
+    ),
+    v4.checks.length
+      ? h(
+          "table",
+          { class: "stat-table reward-checks" },
+          h("tr", {}, h("th", {}, t("检查项")), h("th", {}, t("层")), h("th", {}, t("严重程度")), h("th", {}, t("没通过的 deck")), h("th", {}, ""), h("th", {}, t("涉及页数")), h("th", { title: t("没通过这一项的 deck 的 R 均值，和其余 deck 的 R 均值") }, t("R 均值：有 / 没有这一项"))),
+          v4.checks.map((row) =>
+            h(
+              "tr",
+              {},
+              h("td", {}, h("a", { href: "#/library?v4_check=" + encodeURIComponent(row.id) }, h("code", {}, row.id))),
+              h("td", {}, row.layer || "—"),
+              h("td", {}, severity(row) ? h("span", { class: "chip " + (SEVERITY_TONE[severity(row)] || "muted") }, severity(row)) : "—"),
+              h("td", { class: "num" }, row.decks + " · " + percent(row.share)),
+              h("td", {}, bar(row.share)),
+              h("td", { class: "num" }, String(row.slides)),
+              h("td", { class: "num" }, number(row.r_with) + " (n=" + row.n_with + ") / " + number(row.r_without) + " (n=" + row.n_without + ")")
+            )
+          )
+        )
+      : empty(t("没有未通过的检查项")),
+    h("p", { class: "hint" }, t("两组 R 均值只是这个集合的描述，不是这一项扣了多少分：难题上更容易同时出现多个问题，n 小的时候差距也可能只是波动。"))
+  );
 }
 
 function bar(value) {

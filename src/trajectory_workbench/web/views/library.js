@@ -1,6 +1,6 @@
 import { api, pollJob, runningJob } from "../api.js";
 import { chip, clear, debounce, empty, h } from "../dom.js";
-import { OUTCOME_LABELS, ROLE_LABELS, formatCount, formatDuration, formatReward, outcomeTone } from "../presentation.mjs";
+import { OUTCOME_LABELS, ROLE_LABELS, claimConsistency, formatCount, formatDuration, formatReward, outcomeTone } from "../presentation.mjs";
 import { t, tb } from "../i18n.mjs";
 
 const PAGE = 100;
@@ -21,6 +21,7 @@ export async function renderLibrary(root, ctx, params, still) {
     v4_errors: params.get("v4_errors") || "",
     v4_r_min: params.get("v4_r_min") || "",
     v4_r_max: params.get("v4_r_max") || "",
+    v4_check: params.get("v4_check") || "",
     sort: params.get("sort") || "imported",
     offset: Number(params.get("offset") || 0),
   };
@@ -85,6 +86,7 @@ export async function renderLibrary(root, ctx, params, still) {
             v4_errors: ctx.blind ? "" : filters.v4_errors,
             v4_r_min: ctx.blind ? "" : filters.v4_r_min,
             v4_r_max: ctx.blind ? "" : filters.v4_r_max,
+            v4_check: ctx.blind ? "" : filters.v4_check,
             episodes: filters.view === "episode" ? 1 : "",
             roles: filters.view === "episode" || filters.view === "all" ? "" : filters.view,
           },
@@ -186,6 +188,10 @@ export async function renderLibrary(root, ctx, params, still) {
     ctx.blind ? null : select("v4_errors", [["", t("v4 报错：全部")], ["1", t("有报错（masked / 失败阶段 / deck fault / 重试）")], ["0", t("无报错")]], t("v4 reward 是否有报错")),
     ctx.blind ? null : rangeInput("v4_r_min", "R ≥"),
     ctx.blind ? null : rangeInput("v4_r_max", "R ≤"),
+    // Set from the statistics page (decks on which one reward check failed); removable here.
+    !ctx.blind && filters.v4_check
+      ? h("button", { type: "button", class: "chip filter-chip", title: t("取消这个筛选"), onclick: () => update({ v4_check: "" }) }, t("扣分项：{id} ✕", { id: filters.v4_check }))
+      : null,
     select("sort", [["imported", t("最近导入")], ["steps", t("步数最多")], ["errors", t("报错最多")], ["task", t("按任务分组")], ["title", t("标题")], ...(ctx.blind ? [] : [["v4_r", t("v4 R 高→低")], ["v4_r_asc", t("v4 R 低→高")], ["v4_tier", t("v4 tier 高→低")], ["v4_seconds", t("v4 打分耗时最长")]])], t("排序"))
   );
 
@@ -277,6 +283,7 @@ export async function renderLibrary(root, ctx, params, still) {
       v4_errors: ctx.blind ? "" : filters.v4_errors,
       v4_r_min: ctx.blind ? "" : filters.v4_r_min,
       v4_r_max: ctx.blind ? "" : filters.v4_r_max,
+      v4_check: ctx.blind ? "" : filters.v4_check,
       sort: ctx.blind && filters.sort.startsWith("v4_") ? "imported" : filters.sort,
       offset: filters.offset,
       limit: PAGE,
@@ -367,7 +374,8 @@ function episodeRow(item, ctx) {
 }
 
 function row(item, ctx, nested = false, episode = null) {
-  const status = ctx.blind ? "hidden" : item.outcome_status;
+  // A trajectory with a v4 reward is judged by the reward, not by the harness verifier.
+  const status = ctx.blind ? "hidden" : item.v4_status || item.outcome_status;
   const flags = (item.flags || []).map((key) => chip(tb(ctx.taxonomy.flags[key] || key), "flag"));
   (episode?.subagentFlags || []).forEach((key) => flags.push(chip(t("子代理·{flag}", { flag: tb(ctx.taxonomy.flags[key] || key) }), "flag")));
   const blocking = (item.readiness?.issues || []).filter((issue) => issue.severity === "block");
@@ -378,7 +386,7 @@ function row(item, ctx, nested = false, episode = null) {
   const jev = item.jev_summary || {};
   if (jev.turning_candidates?.length) flags.push(chip(t("Jev 转折候选 {n}", { n: jev.turning_candidates.length }), "jev"));
   if (jev.claims_done_unverified?.length) flags.push(chip(t("Jev 未验证即宣称完成"), "jev"));
-  if (!ctx.blind && jev.consistency === "overclaim") flags.push(chip(t("声称完成但评分失败"), "bad"));
+  if (!ctx.blind && claimConsistency(jev.final_claim, item.v4_status || item.outcome_status) === "overclaim") flags.push(chip(t("声称完成但评分失败"), "bad"));
   const labels = (item.review_labels || []).map((key) => {
     const found = ctx.taxonomy.labels.find((entry) => entry.key === key);
     return chip(found ? tb(found.label) : key, "label");
@@ -397,12 +405,10 @@ function row(item, ctx, nested = false, episode = null) {
       ctx.onCompareChange?.();
     },
   });
-  // The dot is the harness verifier's outcome; on a design task the v4 badge next to it is a
-  // different score, so say which one the dot is.
   const dotTitle = status === "hidden"
     ? t("盲判模式")
-    : item.v4_label
-      ? t("评测脚本结果：{status}（不是 v4 奖励）", { status: OUTCOME_LABELS[status] || status || "—" })
+    : item.v4_status
+      ? t("按 v4 奖励：{status}（评测脚本：{verifier}，不作数）", { status: OUTCOME_LABELS[status] || status, verifier: OUTCOME_LABELS[item.outcome_status] || item.outcome_status || "—" })
       : OUTCOME_LABELS[status];
   const kind = item.extra?.subagent_type ? (item.extra.description ? t("{type}：{description}", { type: item.extra.subagent_type, description: item.extra.description }) : item.extra.subagent_type) : "";
   return h(

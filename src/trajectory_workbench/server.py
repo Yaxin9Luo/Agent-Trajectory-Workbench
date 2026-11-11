@@ -90,6 +90,7 @@ def create_server(
                         v4_errors=None if one("v4_errors") in (None, "") else one("v4_errors") == "1",
                         v4_r_min=self._float(query, "v4_r_min"),
                         v4_r_max=self._float(query, "v4_r_max"),
+                        v4_check=one("v4_check") or None,
                         sort=one("sort") or "imported",
                         offset=self._int(query, "offset", 0),
                         limit=self._int(query, "limit", 100),
@@ -237,7 +238,7 @@ def create_server(
                 return self._json(service.start_reindex(str(payload.get("collection") or "")), status=HTTPStatus.ACCEPTED)
             if path == "/api/exports":
                 filters = payload.get("filters") if isinstance(payload.get("filters"), dict) else {}
-                allowed = {"collection", "outcome", "flag", "label", "search", "task_key", "group_key", "roles", "episodes", "ready", "issue", "jev_flag", "reviewed", "v4_tier", "v4_errors", "v4_r_min", "v4_r_max"}
+                allowed = {"collection", "outcome", "flag", "label", "search", "task_key", "group_key", "roles", "episodes", "ready", "issue", "jev_flag", "reviewed", "v4_tier", "v4_errors", "v4_r_min", "v4_r_max", "v4_check"}
                 clean = {key: value for key, value in filters.items() if key in allowed}
                 if isinstance(clean.get("roles"), str):
                     clean["roles"] = [item for item in clean["roles"].split(",") if item]

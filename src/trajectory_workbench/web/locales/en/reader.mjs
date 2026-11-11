@@ -190,4 +190,6 @@ export default {
   "工具目录": "Tool catalog",
   "{observed} 个实调 · {declared} 个声明可用": "{observed} called · {declared} declared available",
   "未调用": "Not called",
+  "v4 奖励（以此为准）": "v4 reward (this is the verdict)",
+  "评测脚本：{status}（不作数）": "verifier: {status} (not counted)",
 };

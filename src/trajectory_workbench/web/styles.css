@@ -394,6 +394,14 @@ pre { margin: 6px 0 0; max-height: 420px; overflow: auto; padding: 9px 10px; bor
 .histogram { display: flex; align-items: flex-end; gap: 4px; height: 110px; padding-top: 6px; border-bottom: 1px solid var(--line); }
 .histogram span { flex: 1; min-height: 2px; background: var(--purple); border-radius: 3px 3px 0 0; opacity: .8; }
 .histogram.daily span { background: var(--green); }
+.histogram-axis { display: flex; justify-content: space-between; color: var(--faint); font: 10px var(--mono); margin-top: 3px; }
+.reward-card { margin-bottom: 14px; }
+.reward-metrics { grid-template-columns: repeat(4, minmax(120px, 1fr)); border: 1px solid var(--line-soft); border-radius: 8px; margin: 10px 0 14px; }
+.reward-spread { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 2fr); gap: 24px; margin-bottom: 14px; }
+.reward-checks { display: block; overflow-x: auto; }
+.reward-checks td code { font-size: 11px; }
+.filter-chip { cursor: pointer; color: var(--cyan); background: var(--cyan-soft); border-color: #c8e8ef; }
+@media (max-width: 900px) { .reward-spread { grid-template-columns: 1fr; } .reward-metrics { grid-template-columns: repeat(2, 1fr); } }
 
 /* ---- modal ------------------------------------------------------------------ */
 .image-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 30px; background: rgba(15, 20, 30, .82); }

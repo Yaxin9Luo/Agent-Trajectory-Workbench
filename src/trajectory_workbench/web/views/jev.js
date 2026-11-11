@@ -1,6 +1,6 @@
 import { api } from "../api.js";
 import { clear, empty, h } from "../dom.js";
-import { PHASE_LABELS, WORK_LABELS, formatCount, formatDuration, percent } from "../presentation.mjs";
+import { PHASE_LABELS, WORK_LABELS, claimConsistency, formatCount, formatDuration, percent, v4Status } from "../presentation.mjs";
 import { t } from "../i18n.mjs";
 
 const QUESTION_LABELS = {
@@ -107,7 +107,7 @@ export function renderJevPanel(slot, reader) {
 
     const task = jev.task || {};
     if (task.final_claim) {
-      const consistency = state.revealed ? summary.consistency : null;
+      const consistency = state.revealed ? claimConsistency(task.final_claim.choice, v4Status(run.v4_reward) || (run.outcome || {}).status) : null;
       parts.push(
         h(
           "div",

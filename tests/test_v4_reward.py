@@ -136,6 +136,52 @@ class V4RewardTest(unittest.TestCase):
         self.assertEqual(tasks(self.items(sort="v4_seconds"))[0], "deck-b")
         self.assertEqual(tasks(self.items(episodes=True, v4_tier="4")), ["deck-a"])
 
+    def test_a_trajectory_with_a_reward_is_judged_by_the_reward(self) -> None:
+        # The harness verifier passed both trials (reward 1.0); the v4 reward says deck-c
+        # has a fatal defect and deck-b could not be scored.
+        make_trial(self.runs / "deck-c__1", "deck-c")
+        write_json(self.score / "work" / "deck-c" / "reward.json", {
+            "artifact_id": "deck-c", "masked": False, "tier": 1, "tier_name": "L1 fatal", "R": 0.05, "slides": 3,
+            "ledger": [
+                {"layer": "L1", "id": "craft.text_overflow", "pass": False, "severity": "fatal", "slides": [1, 3]},
+                {"layer": "L1", "id": "craft.text_overflow", "pass": False, "severity": "fatal", "slides": [2]},
+                {"layer": "L1", "id": "delivery.small_text", "pass": False, "severity": "minor", "slides": [2]},
+            ],
+        })
+        self.service.import_path(str(self.runs), "Runs")
+        tasks = lambda items: sorted(item["task_id"] for item in items if item.get("group_role") in (None, "main"))  # noqa: E731
+        self.assertEqual(tasks(self.items(outcome="pass")), ["deck-a", "deck-b", "deck-c"])
+        self.service.import_v4_reward(str(self.score), "v1", str(self.runs))
+        rows = {item["task_id"]: item for item in self.items()}
+        self.assertEqual({task: row["v4_status"] for task, row in rows.items()}, {"deck-a": "pass", "deck-b": "unknown", "deck-c": "fail"})
+        self.assertEqual(tasks(self.items(outcome="pass")), ["deck-a"])
+        self.assertEqual(tasks(self.items(outcome="fail")), ["deck-c"])
+        self.assertEqual(tasks(self.items(episodes=True, outcome="unknown")), ["deck-b"])
+        # Failed-check filter.
+        self.assertEqual(tasks(self.items(v4_check="craft.text_overflow")), ["deck-a", "deck-c"])
+        self.assertEqual(tasks(self.items(v4_check="delivery.small_text")), ["deck-c"])
+        self.assertEqual(tasks(self.items(v4_check="no.such")), [])
+
+        stats = self.service.stats("Runs")
+        self.assertEqual(stats["outcomes"], {"pass": 1, "fail": 1, "unknown": 1})
+        v4 = stats["v4"]
+        self.assertEqual((v4["decks"], v4["scored"], v4["masked"], v4["clean"]), (3, 2, 1, 1))
+        self.assertEqual(v4["statuses"], {"pass": 1, "partial": 0, "fail": 1, "unknown": 1})
+        self.assertEqual(v4["r_mean"], 0.4)
+        self.assertEqual(v4["histogram"][0], 1)
+        self.assertEqual(v4["histogram"][7], 1)
+        overflow, small = v4["checks"]
+        # One deck counts once however many slides the check failed on.
+        self.assertEqual((overflow["id"], overflow["decks"], overflow["slides"], overflow["layer"]), ("craft.text_overflow", 2, 4, "L1"))
+        self.assertEqual(overflow["severities"], {"minor": 1, "fatal": 1})
+        self.assertEqual((overflow["r_with"], overflow["n_with"], overflow["r_without"], overflow["n_without"]), (0.4, 2, None, 0))
+        self.assertEqual((small["id"], small["decks"], small["r_with"], small["r_without"]), ("delivery.small_text", 1, 0.05, 0.75))
+        # No reward, no reward statistics, and the verifier's outcome stands.
+        self.service.import_path(str(self.base / "other"), "Other")
+        other = self.service.stats("Other")
+        self.assertIsNone(other["v4"])
+        self.assertEqual(other["outcomes"], {"pass": 1})
+
     def test_survives_trajectory_reimport_with_new_ids_and_is_idempotent(self) -> None:
         self.service.import_path(str(self.runs), "Runs")
         trajectory = self.by_path(self.items())["runs/deck-a__1"]

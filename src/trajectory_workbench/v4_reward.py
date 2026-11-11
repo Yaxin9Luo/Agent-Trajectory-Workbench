@@ -100,3 +100,80 @@ def read_root(root: Path, runs_root: str) -> tuple[list[dict[str, Any]], list[di
             errors.append({"task_id": row["task_id"], "error": f"artifact_id is {row['artifact_id']!r}; matched by directory name"})
         rows.append(row)
     return rows, errors
+
+
+def status(reward: dict[str, Any]) -> str:
+    """The outcome a reward stands for (same rule as store.V4_STATUS): masked is unknown,
+    tier 4 and above passes, tiers 2-3 are partial, lower tiers fail."""
+    if reward.get("masked") or reward.get("R") is None:
+        return "unknown"
+    tier = reward.get("tier") or 0
+    return "pass" if tier >= 4 else "partial" if tier >= 2 else "fail"
+
+
+def _mean(values: list[float]) -> float | None:
+    return round(sum(values) / len(values), 4) if values else None
+
+
+def collection_stats(decks: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """What the rewards of a collection say together: how R and tiers are spread, and for
+    each failed check, on how many decks it failed. `decks` is [{id, reward}].
+
+    `r_with` / `r_without` are the mean R of decks with and without the failed check: a
+    description of this collection, not the effect of the check (a check that fails mostly
+    on hard tasks has a low `r_with` whatever it costs).
+    """
+    if not decks:
+        return None
+    scored = [deck["reward"]["R"] for deck in decks if status(deck["reward"]) != "unknown"]
+    ordered = sorted(scored)
+    tiers: dict[tuple[Any, Any], int] = {}
+    for deck in decks:
+        reward = deck["reward"]
+        key = ("masked", None) if status(reward) == "unknown" else (reward.get("tier"), reward.get("tier_name"))
+        tiers[key] = tiers.get(key, 0) + 1
+    histogram = [0] * 10
+    for value in scored:
+        histogram[min(9, max(0, int(value * 10)))] += 1
+    checks: dict[str, dict[str, Any]] = {}
+    for deck in decks:
+        reward = deck["reward"]
+        seen: set[str] = set()
+        for item in reward.get("failed") or []:
+            check_id = str(item.get("id") or "?")
+            entry = checks.setdefault(check_id, {"id": check_id, "layer": item.get("layer"), "severities": {}, "decks": 0, "slides": 0, "r": []})
+            entry["slides"] += len(item.get("slides") or [])
+            if check_id in seen:
+                continue
+            seen.add(check_id)
+            entry["decks"] += 1
+            severity = item.get("severity") or "?"
+            entry["severities"][severity] = entry["severities"].get(severity, 0) + 1
+            if status(reward) != "unknown":
+                entry["r"].append(reward["R"])
+    total_r = sum(scored)
+    rows = []
+    for entry in checks.values():
+        with_r = entry.pop("r")
+        without = len(scored) - len(with_r)
+        rows.append({
+            **entry,
+            "share": round(entry["decks"] / len(decks), 3),
+            "r_with": _mean(with_r),
+            "r_without": round((total_r - sum(with_r)) / without, 4) if without else None,
+            "n_with": len(with_r),
+            "n_without": without,
+        })
+    rows.sort(key=lambda row: (-row["decks"], row["id"]))
+    return {
+        "decks": len(decks),
+        "scored": len(scored),
+        "masked": len(decks) - len(scored),
+        "r_mean": _mean(scored),
+        "r_median": round(ordered[len(ordered) // 2] if len(ordered) % 2 else (ordered[len(ordered) // 2 - 1] + ordered[len(ordered) // 2]) / 2, 4) if ordered else None,
+        "statuses": {name: sum(1 for deck in decks if status(deck["reward"]) == name) for name in ("pass", "partial", "fail", "unknown")},
+        "tiers": [{"tier": tier, "name": name, "count": count} for (tier, name), count in sorted(tiers.items(), key=lambda item: (item[0][0] == "masked", -(item[0][0] if isinstance(item[0][0], int) else -1)))],
+        "histogram": histogram,
+        "clean": sum(1 for deck in decks if not (deck["reward"].get("failed") or [])),
+        "checks": rows,
+    }

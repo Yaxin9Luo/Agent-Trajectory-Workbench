@@ -15,6 +15,8 @@ import {
   lineDiff,
   terminalCards,
   toolSignature,
+  claimConsistency,
+  v4Status,
 } from "../src/trajectory_workbench/web/presentation.mjs";
 
 test("missing duration is distinct from measured zero", () => {
@@ -237,4 +239,24 @@ test("v4 crop window keeps the box in view and clamps to the viewport", async ()
   assert.equal(formatReward(null, false), "masked");
   assert.equal(formatReward(0, false), "0.00");
   assert.equal(formatReward(0.5, true), "masked");
+});
+
+test("a v4 reward stands for an outcome: masked unknown, tier 4 pass, 2-3 partial, lower fail", () => {
+  assert.equal(v4Status(null), null);
+  assert.equal(v4Status({ R: 0.76, tier: 4, masked: false }), "pass");
+  assert.equal(v4Status({ R: 0.15, tier: 2 }), "partial");
+  assert.equal(v4Status({ R: 0.03, tier: 1 }), "fail");
+  assert.equal(v4Status({ R: 0, tier: 0 }), "fail");
+  assert.equal(v4Status({ R: null, tier: 1, masked: true }), "unknown");
+  // A list row carries the same reward as v4_* fields.
+  assert.equal(v4Status({ v4_r: 0.6, v4_tier: 4, v4_masked: false }), "pass");
+  assert.equal(v4Status({ v4_r: null, v4_tier: 1, v4_masked: true }), "unknown");
+});
+
+test("claim consistency compares the final claim with the outcome that counts", () => {
+  assert.equal(claimConsistency("complete", "fail"), "overclaim");
+  assert.equal(claimConsistency("complete", "pass"), null);
+  assert.equal(claimConsistency("complete", "partial"), null);
+  assert.equal(claimConsistency("failed", "pass"), "underclaim");
+  assert.equal(claimConsistency(undefined, "fail"), null);
 });

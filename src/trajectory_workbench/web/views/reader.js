@@ -10,13 +10,16 @@ import {
   formatClock,
   formatCount,
   formatDuration,
+  formatReward,
   outcomeTone,
   editDiff,
+  claimConsistency,
   editView,
   foldText,
   lineDiff,
   railCells,
   trackCells,
+  v4Status,
 } from "../presentation.mjs";
 import { renderJevPanel } from "./jev.js";
 import { createAnnotations } from "./annotations.js";
@@ -185,6 +188,17 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     let verdict;
     if (!state.revealed) {
       verdict = h("div", { class: "verdict hidden-verdict" }, h("strong", {}, t("评分已隐藏")), h("span", {}, t("在右侧先给出你的判断")));
+    } else if (run.v4_reward) {
+      // Judged by the v4 reward; the harness verifier's result is shown but does not count.
+      const reward = run.v4_reward;
+      const status = v4Status(reward);
+      verdict = h(
+        "div",
+        { class: "verdict " + outcomeTone(status) },
+        h("small", { class: "verdict-source" }, t("v4 奖励（以此为准）")),
+        h("strong", {}, OUTCOME_LABELS[status] + " · R " + formatReward(reward.R, reward.masked)),
+        h("span", {}, ["tier " + (reward.tier ?? "—") + (reward.tier_name ? " " + reward.tier_name : ""), t("评测脚本：{status}（不作数）", { status: OUTCOME_LABELS[outcome.status] || outcome.status || t("无评分") })].join(" · "))
+      );
     } else {
       verdict = h(
         "div",
@@ -309,8 +323,9 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       if (summary.claims_done_unverified?.length) {
         chips.push(h("button", { type: "button", class: "signal jev warn", onclick: () => setHighlight(t("Jev · 未验证即宣称完成"), summary.claims_done_unverified) }, h("b", {}, t("Jev · 未验证即宣称完成")), h("span", {}, summary.claims_done_unverified.map((s) => "#" + s).join(" "))));
       }
-      if (state.revealed && summary.consistency === "overclaim") chips.push(h("span", { class: "signal bad" }, h("b", {}, t("声称完成但评分失败")), h("span", {}, t("对比最终汇报与评分"))));
-      if (state.revealed && summary.consistency === "underclaim") chips.push(h("span", { class: "signal warn" }, h("b", {}, t("自称未完成但评分通过")), h("span", {}, t("评分器可能太松"))));
+      const consistency = claimConsistency(summary.final_claim, v4Status(run.v4_reward) || (run.outcome || {}).status);
+      if (state.revealed && consistency === "overclaim") chips.push(h("span", { class: "signal bad" }, h("b", {}, t("声称完成但评分失败")), h("span", {}, t("对比最终汇报与评分"))));
+      if (state.revealed && consistency === "underclaim") chips.push(h("span", { class: "signal warn" }, h("b", {}, t("自称未完成但评分通过")), h("span", {}, t("评分器可能太松"))));
     }
     const layers = values.layers || {};
     const layerText = Object.entries(layers).filter(([, count]) => count).map(([key, count]) => (LAYER_LABELS[key.replace("_events", "")] || key) + " " + count);
