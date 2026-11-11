@@ -5,6 +5,7 @@ export default {
   "主导航": "Main navigation",
   "轨迹库": "Library",
   "对比": "Compare",
+  "同题矩阵": "Task matrix",
   "改写审阅": "Rewrite review",
   "搜索": "Search",
   "工具与报错": "Tools & errors",

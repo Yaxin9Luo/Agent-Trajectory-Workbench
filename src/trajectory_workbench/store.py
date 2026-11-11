@@ -909,6 +909,43 @@ class Store:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    # -- task x collection matrix -------------------------------------------------------
+
+    def collections_sharing_tasks(self) -> list[str]:
+        """Collections with at least one episode whose task_key also has an episode in another
+        collection, most recently imported first (the sidebar's order)."""
+        with self._locked():
+            rows = self._db.execute(
+                "SELECT collection FROM trajectories WHERE episode_head = 1 AND task_key IN ("
+                "SELECT task_key FROM trajectories WHERE episode_head = 1 AND task_key IS NOT NULL "
+                "GROUP BY task_key HAVING COUNT(DISTINCT collection) > 1) "
+                "GROUP BY collection ORDER BY MAX(imported_at) DESC, collection"
+            ).fetchall()
+        return [row[0] for row in rows]
+
+    def matrix_rows(self, collections: list[str]) -> list[dict[str, Any]]:
+        """Every episode head of `collections` with its episode-wide numbers and its v4 reward
+        (when it has one), in one query: task_key, then newest import first. Rows with no
+        task_key are included (the caller counts them); the first 1920x1080 still is read out
+        of the reward payload here so the payload itself is never decoded."""
+        if not collections:
+            return []
+        marks = ", ".join("?" for _ in collections)
+        with self._locked():
+            rows = self._db.execute(
+                "SELECT t.id, t.collection, t.task_key, t.task_id, t.title, t.outcome_status, "
+                "COALESCE(json_extract(t.episode, '$.steps'), t.steps) AS steps, "
+                "COALESCE(json_extract(t.episode, '$.tool_errors'), t.tool_errors) AS tool_errors, "
+                "COALESCE(json_extract(t.episode, '$.duration_ms'), t.duration_ms) AS duration_ms, "
+                f"{V4_SELECT}, v.task_id AS v4_task_id, "
+                "json_extract(v.payload, '$.stills.\"1920x1080\"[0]') AS v4_still "
+                f"FROM trajectories t LEFT JOIN v4_rewards v ON v.rowid = {V4_MATCH} "
+                f"WHERE t.episode_head = 1 AND t.collection IN ({marks}) "
+                "ORDER BY t.task_key, t.imported_at DESC, t.rowid DESC",
+                list(collections),
+            ).fetchall()
+        return [self._decode(row) for row in rows]
+
     # -- reviews ----------------------------------------------------------------------
 
     def get_review(self, trajectory_id: str, reviewer: str) -> dict[str, Any] | None:

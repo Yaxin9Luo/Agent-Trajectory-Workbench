@@ -15,7 +15,7 @@ class WebAssetsTest(unittest.TestCase):
         self.assertIn('src="/app.js"', index)
         self.assertIn('aria-label="绝对路径"', index)
         self.assertIn('aria-label="主导航"', index)
-        for view in ("library", "compare", "rewrites", "search", "explore", "stats", "queue"):
+        for view in ("library", "compare", "matrix", "rewrites", "search", "explore", "stats", "queue"):
             self.assertIn(f'data-nav="{view}"', index)
 
     def test_no_module_parses_transcript_text_as_html(self) -> None:

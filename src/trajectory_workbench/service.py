@@ -1185,6 +1185,98 @@ class WorkbenchService:
             raise FileNotFoundError(relative)
         return resolved
 
+    # -- task x collection matrix -------------------------------------------------------
+
+    def matrix(self, collections: list[str] | None = None) -> dict[str, Any]:
+        """Each task (row) against each collection (column): every episode of that task in
+        that collection, newest import first, with its v4 reward when it has one.
+
+        Tasks are matched across collections by `task_key`, which the adapters set at import
+        to "id:<task id>" or, without a task id, "h:<hash of the instruction's opening>". A
+        row with no task_key (no task id and no instruction) cannot be matched: it is left out
+        of the rows and counted per column as `unkeyed`, so nothing disappears silently.
+
+        Without `collections`, the columns are every collection that shares at least one task
+        with another collection (the checkpoints of one benchmark); collections that share
+        nothing (Claude Code sessions, a one-off import) would only add empty columns.
+        """
+        given = collections is not None
+        names = list(dict.fromkeys(name for name in (collections or []) if name)) if given else self.store.collections_sharing_tasks()
+        position = {name: index for index, name in enumerate(names)}
+        columns = [
+            {"name": name, "episodes": 0, "tasks": 0, "unkeyed": 0, "rewarded": 0, "scored": 0, "masked": 0,
+             "r_mean": None, "tiers": {str(tier): 0 for tier in range(5)}, "_r": []}
+            for name in names
+        ]
+        tasks: dict[str, dict[str, Any]] = {}
+        for row in self.store.matrix_rows(names):
+            column = columns[position[row["collection"]]]
+            column["episodes"] += 1
+            reward = None
+            if row.get("v4_label"):
+                masked = bool(row.get("v4_masked")) or row.get("v4_r") is None
+                reward = {
+                    "R": None if masked else row["v4_r"], "tier": row.get("v4_tier"), "tier_name": row.get("v4_tier_name"),
+                    "masked": masked, "label": row["v4_label"], "task_id": row.get("v4_task_id"), "still": row.get("v4_still"),
+                }
+                column["rewarded"] += 1
+                if masked:
+                    column["masked"] += 1
+                else:
+                    column["scored"] += 1
+                    column["_r"].append(row["v4_r"])
+                    tier = row.get("v4_tier")
+                    if tier is not None:
+                        key = str(max(0, min(4, int(tier))))
+                        column["tiers"][key] += 1
+            if not row.get("task_key"):
+                column["unkeyed"] += 1
+                continue
+            task = tasks.get(row["task_key"])
+            if task is None:
+                task = tasks[row["task_key"]] = {
+                    "task_key": row["task_key"], "task_id": row.get("task_id"), "title": None,
+                    "cells": [[] for _ in names], "_titles": {},
+                }
+            task["_titles"].setdefault(position[row["collection"]], row.get("title"))
+            task["cells"][position[row["collection"]]].append({
+                "id": row["id"], "steps": row.get("steps"), "tool_errors": row.get("tool_errors"),
+                "duration_ms": row.get("duration_ms"), "outcome_status": row.get("outcome_status") or "unknown",
+                "reward": reward,
+            })
+        # Every collection has episode heads, so a name with none is not in the index.
+        unknown = [column["name"] for column in columns if not column["episodes"]]
+        if unknown:
+            raise ValueError("unknown collection: " + ", ".join(unknown))
+        rows = []
+        for task in tasks.values():
+            titles = task.pop("_titles")
+            # The title the first column (in the order asked for) gives; it can differ between
+            # collections only when the instructions differ.
+            task["title"] = next((titles[i] for i in sorted(titles) if titles[i]), None) or task["task_id"] or task["task_key"]
+            # Spread and tier difference compare each cell's best scored attempt.
+            best = [
+                max((a["reward"] for a in cell if a["reward"] and not a["reward"]["masked"]), key=lambda r: r["R"], default=None)
+                for cell in task["cells"]
+            ]
+            scored = [reward for reward in best if reward]
+            task["spread"] = round(max(r["R"] for r in scored) - min(r["R"] for r in scored), 4) if len(scored) >= 2 else None
+            task["tiers_differ"] = len({r["tier"] for r in scored}) > 1
+            for index, cell in enumerate(task["cells"]):
+                if cell:
+                    columns[index]["tasks"] += 1
+            rows.append(task)
+        rows.sort(key=lambda task: (str(task["title"]).casefold(), task["task_key"]))
+        for column in columns:
+            values = column.pop("_r")
+            column["r_mean"] = round(sum(values) / len(values), 4) if values else None
+        return {
+            "rule": "given" if given else "shared",
+            "collections": columns,
+            "tasks": rows,
+            "shared_tasks": sum(1 for task in rows if sum(1 for cell in task["cells"] if cell) >= 2),
+        }
+
     def _related(self, row: dict[str, Any], column: str) -> list[dict[str, Any]]:
         # Other attempts at the same task, one row per episode, across all collections.
         _, rows = self.store.query_trajectories(
