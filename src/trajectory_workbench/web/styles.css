@@ -543,6 +543,7 @@ kbd { font: 11px var(--mono); padding: 0 4px; border: 1px solid var(--line); bor
 .fold-button { display: block; width: 100%; margin: 2px 0; padding: 3px; border: 1px dashed var(--line); border-radius: 4px; background: var(--paper-2); color: var(--muted); font-size: 11px; cursor: pointer; }
 .repeat-row { margin-top: 6px; font-size: 12px; display: grid; gap: 4px; }
 pre.diff { max-height: 420px; overflow: auto; }
+.change-hunks { display: grid; gap: 6px; }
 .diff-line { display: block; white-space: pre-wrap; }
 .diff-line.add { background: var(--green-soft); color: var(--green); }
 .diff-line.del { background: var(--red-soft); color: var(--red); }

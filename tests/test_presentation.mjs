@@ -7,7 +7,9 @@ import {
   queueProgress,
   railCells,
   trackCells,
+  editView,
   foldLines,
+  foldText,
   lineDiff,
   terminalCards,
   toolSignature,
@@ -139,6 +141,46 @@ test("foldLines keeps head and tail of long outputs only", () => {
   assert.deepEqual(folded.head, ["line 0", "line 1", "line 2", "line 3", "line 4"]);
   assert.deepEqual(folded.tail, ["line 97", "line 98", "line 99"]);
   assert.equal(folded.hidden, 92);
+});
+
+test("foldText folds one huge line by characters and many lines by lines", () => {
+  assert.deepEqual(foldText("a\nb"), { folded: false, head: "a\nb", tail: "", hidden: 0, unit: "行" });
+  const many = Array.from({ length: 100 }, (_, index) => "line " + index).join("\n");
+  const byLines = foldText(many, { head: 5, tail: 3 });
+  assert.equal(byLines.unit, "行");
+  assert.equal(byLines.hidden, 92);
+  assert.equal(byLines.head, "line 0\nline 1\nline 2\nline 3\nline 4");
+  // One 50,000-character line: foldLines alone would show all of it.
+  const huge = "x".repeat(50_000);
+  assert.equal(foldLines(huge).folded, false);
+  const byChars = foldText(huge);
+  assert.equal(byChars.folded, true);
+  assert.equal(byChars.unit, "字");
+  assert.equal(byChars.head.length + byChars.tail.length + byChars.hidden, huge.length);
+  assert.ok(byChars.head.length + byChars.tail.length <= 12_000);
+  // A cut never leaves half of a surrogate pair.
+  const emoji = foldText("😀".repeat(20_000));
+  assert.equal(emoji.head.length % 2, 0);
+  assert.equal(emoji.tail.length % 2, 0);
+  assert.equal(emoji.head.length + emoji.tail.length + emoji.hidden, 40_000);
+});
+
+test("editView reads file changes from the input shape", () => {
+  assert.deepEqual(editView({ file_path: "/a.py", old_string: "x = 1", new_string: "x = 2", replace_all: false }), {
+    kind: "edit", path: "/a.py", hunks: [{ before: "x = 1", after: "x = 2" }],
+  });
+  assert.deepEqual(editView({ path: "b.py", command: "str_replace", old_str: "a", new_str: "b" }).hunks, [{ before: "a", after: "b" }]);
+  assert.equal(editView({ file_path: "c.py", edits: [{ old_string: "a", new_string: "b" }, { old_string: "c", new_string: "d" }] }).hunks.length, 2);
+  assert.deepEqual(editView({ file_path: "d.txt", content: "hello\n" }), { kind: "write", path: "d.txt", content: "hello\n" });
+  assert.equal(editView("*** Begin Patch\n*** Update File: a\n-x\n+y\n*** End Patch").kind, "patch");
+  assert.equal(editView({ input: "*** Begin Patch\n*** End Patch" }).kind, "patch");
+  // Not file changes.
+  assert.equal(editView({ command: "ls -la" }), null);
+  assert.equal(editView({ file_path: "e.py" }), null);
+  assert.equal(editView({ content: "no path" }), null);
+  assert.equal(editView({ file_path: "f.py", edits: [{ old_string: "a" }] }), null);
+  assert.equal(editView("echo hi"), null);
+  assert.equal(editView(null), null);
 });
 
 test("lineDiff marks removed and added lines", () => {

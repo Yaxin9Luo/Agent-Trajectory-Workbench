@@ -208,6 +208,71 @@ export function foldLines(text, head = 40, tail = 20) {
   return { folded: true, head: lines.slice(0, head), tail: lines.slice(-tail), hidden: lines.length - head - tail };
 }
 
+/** Cut `text` at `end` without splitting a surrogate pair. */
+function sliceHead(text, end) {
+  const code = text.charCodeAt(end - 1);
+  return text.slice(0, code >= 0xd800 && code <= 0xdbff ? end - 1 : end);
+}
+
+function sliceTail(text, count) {
+  const start = text.length - count;
+  const code = text.charCodeAt(start);
+  return text.slice(code >= 0xdc00 && code <= 0xdfff ? start + 1 : start);
+}
+
+/**
+ * Head and tail of a long text as strings. Folds by lines first; when the kept part is still
+ * too long (one huge line: minified JSON, base64, one-line HTML) it folds by characters.
+ * `unit` says what `hidden` counts: "行" or "字".
+ */
+export function foldText(text, { head = 40, tail = 20, maxChars = 12000, headChars = 6000, tailChars = 3000 } = {}) {
+  const value = String(text ?? "");
+  const lines = foldLines(value, head, tail);
+  const headText = lines.head.join("\n");
+  const tailText = lines.tail.join("\n");
+  if (headText.length + tailText.length <= maxChars) {
+    return lines.folded
+      ? { folded: true, head: headText, tail: tailText, hidden: lines.hidden, unit: "行" }
+      : { folded: false, head: value, tail: "", hidden: 0, unit: "行" };
+  }
+  const keptHead = sliceHead(value, headChars);
+  const keptTail = sliceTail(value, tailChars);
+  return { folded: true, head: keptHead, tail: keptTail, hidden: value.length - keptHead.length - keptTail.length, unit: "字" };
+}
+
+const PATCH_START = /^\s*\*\*\* Begin Patch/;
+
+/**
+ * What a file-changing call does, read from the shape of its input so it works across harnesses:
+ *   {kind: "edit", path, hunks: [{before, after}]}   old/new string pairs (Edit, MultiEdit, str_replace)
+ *   {kind: "write", path, content}                   whole-file content (Write, create)
+ *   {kind: "patch", text}                            apply_patch text
+ * Returns null for any other input.
+ */
+export function editView(input) {
+  if (typeof input === "string") return PATCH_START.test(input) ? { kind: "patch", text: input } : null;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  for (const key of ["input", "patch", "command"]) {
+    if (typeof input[key] === "string" && PATCH_START.test(input[key])) return { kind: "patch", text: input[key] };
+  }
+  const path = [input.file_path, input.path, input.notebook_path].find((value) => typeof value === "string") || "";
+  const pair = (item) => {
+    if (!item || typeof item !== "object") return null;
+    const before = item.old_string ?? item.old_str;
+    const after = item.new_string ?? item.new_str;
+    return typeof before === "string" && typeof after === "string" ? { before, after } : null;
+  };
+  if (Array.isArray(input.edits)) {
+    const hunks = input.edits.map(pair);
+    if (hunks.length && hunks.every(Boolean)) return { kind: "edit", path, hunks };
+  }
+  const single = pair(input);
+  if (single) return { kind: "edit", path, hunks: [single] };
+  const content = input.content ?? input.file_text;
+  if (path && typeof content === "string") return { kind: "write", path, content };
+  return null;
+}
+
 /**
  * Line diff (longest common subsequence) of two outputs, as [{op: "=" | "-" | "+", text}].
  * Returns null when either side is too long to compare line by line.

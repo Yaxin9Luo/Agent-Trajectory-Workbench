@@ -16,6 +16,13 @@ const QUESTION_LABELS = {
 const RELIANCE_LABELS = { uses_component: "要用/解读 harness 组件", cites_instruction: "拿 harness 指令当理由", unclear: "方式不明确" };
 const CLAIMS = { complete: "声称全部完成", partial: "声称部分完成", failed: "报告失败/受阻", asks_user: "以提问结束", none: "没有最终汇报" };
 
+// Above this many model steps (~$0.04 at 3000 tokens a step) the scan waits for a click.
+const AUTO_SCAN_STEPS = 300;
+
+function modelSteps(run) {
+  return run.step_index.filter((item) => item.role === "assistant" || item.role === "tool").length;
+}
+
 export function renderJevPanel(slot, reader) {
   const { state, ctx } = reader;
   const run = state.run;
@@ -48,7 +55,7 @@ export function renderJevPanel(slot, reader) {
       return;
     }
     if (!jev?.steps) {
-      const steps = run.step_index.filter((item) => item.role === "assistant" || item.role === "tool").length;
+      const steps = modelSteps(run);
       clear(
         card,
         head,
@@ -210,7 +217,8 @@ export function renderJevPanel(slot, reader) {
   }
 
   render();
-  // A step scan costs ~$0.002 and a few seconds, so run it on first open.
-  if (ctx.jevAvailable && !state.jev?.steps) analyze(false);
+  // A step scan of a short run costs ~$0.002 and a few seconds, so run it on first open.
+  // A long run is one request per step with no cap: leave it to the button, which shows the cost.
+  if (ctx.jevAvailable && !state.jev?.steps && modelSteps(run) <= AUTO_SCAN_STEPS) analyze(false);
   return { refresh: render };
 }

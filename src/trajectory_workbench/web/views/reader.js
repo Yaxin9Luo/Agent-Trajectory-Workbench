@@ -11,7 +11,8 @@ import {
   formatCount,
   formatDuration,
   outcomeTone,
-  foldLines,
+  editView,
+  foldText,
   lineDiff,
   railCells,
   trackCells,
@@ -25,6 +26,7 @@ import { renderReviewPanel } from "./review.js";
 import { renderV4Reward } from "./v4reward.js";
 
 const TEXT_CLIP = 6000;
+const CHANGE_LABELS = { edit: "改动", write: "写入", patch: "补丁" };
 
 export async function renderReader(root, trajectoryId, ctx, still, params = new URLSearchParams()) {
   clear(root, empty("读取轨迹…"));
@@ -596,9 +598,15 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       )
     );
     const input = typeof tool.input === "string" ? tool.input : JSON.stringify(tool.input, null, 2);
-    box.append(details("输入", input, false));
+    const change = editView(tool.input);
+    if (change) {
+      box.append(details(CHANGE_LABELS[change.kind] + (change.path ? " · " + change.path : ""), changeBody(change), true));
+      box.append(details("原始输入", folded(input), false));
+    } else {
+      box.append(details("输入", folded(input), false));
+    }
     const output = result ? result.text : "没有匹配的工具返回";
-    box.append(details(result?.is_error ? "返回 · 报错" : "返回", foldedOutput(output), Boolean(result?.is_error)));
+    box.append(details(result?.is_error ? "返回 · 报错" : "返回", folded(output), Boolean(result?.is_error)));
     if (tool.repeat_of && result) box.append(repeatDiff(tool));
     appendImages(box, result?.images || [], tool.name);
     const child = spawned.get(tool.id);
@@ -628,14 +636,38 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     target.append(gallery);
   }
 
-  /** Long outputs show their head and tail; the middle opens on request. */
-  function foldedOutput(text) {
-    const fold = foldLines(text);
+  /** Long text shows its head and tail; the middle opens on request. */
+  function folded(text) {
+    const fold = foldText(text);
     if (!fold.folded) return h("pre", {}, text);
-    const pre = h("pre", {}, fold.head.join("\n"));
-    const button = h("button", { type: "button", class: "fold-button", onclick: () => { pre.textContent = text; button.remove(); tailPre.remove(); } }, "… 展开中间 " + fold.hidden + " 行 …");
-    const tailPre = h("pre", {}, fold.tail.join("\n"));
+    const pre = h("pre", {}, fold.head);
+    const button = h("button", { type: "button", class: "fold-button", onclick: () => { pre.textContent = text; button.remove(); tailPre.remove(); } }, "… 展开中间 " + formatCount(fold.hidden) + " " + fold.unit + " …");
+    const tailPre = h("pre", {}, fold.tail);
     return h("div", { class: "folded-output" }, pre, button, tailPre);
+  }
+
+  function diffLines(lines) {
+    return h("pre", { class: "diff" }, lines.map((line) =>
+      h("span", { class: "diff-line " + (line.op === "+" ? "add" : line.op === "-" ? "del" : "same") }, line.op + " " + line.text + "\n")
+    ));
+  }
+
+  /** A file-changing call as a diff (or the written text), instead of JSON with escaped newlines. */
+  function changeBody(change) {
+    if (change.kind === "write") return folded(change.content);
+    if (change.kind === "patch") {
+      const fold = foldText(change.text);
+      if (fold.folded) return folded(change.text);
+      return h("pre", { class: "diff" }, change.text.split("\n").map((line) =>
+        h("span", { class: "diff-line " + (/^\+(?!\+\+ )/.test(line) ? "add" : /^-(?!-- )/.test(line) ? "del" : "same") }, line + "\n")
+      ));
+    }
+    return h("div", { class: "change-hunks" }, change.hunks.map((hunk, index) => {
+      const diff = lineDiff(hunk.before, hunk.after);
+      const label = change.hunks.length > 1 ? h("div", { class: "muted" }, "第 " + (index + 1) + " 处 / 共 " + change.hunks.length + " 处") : null;
+      if (!diff) return h("div", {}, label, h("div", { class: "muted" }, "改动太长，不做逐行对比：先是原文，后是新文"), folded(hunk.before), folded(hunk.after));
+      return h("div", {}, label, diffLines(diff.map((line) => ({ op: line.op === "=" ? " " : line.op, text: line.text }))));
+    }));
   }
 
   /** "Same command as step N": diff this output against that earlier run. */
