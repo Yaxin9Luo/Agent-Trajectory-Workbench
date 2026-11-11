@@ -291,6 +291,20 @@ starting with `_` are skipped) under a label; importing the same label again rep
 Rewards are matched to trajectories when they are read, by task id plus a source path that
 starts with `--runs-root`, so removing and re-importing the trajectories (new ids, new
 collection name) keeps the match, and the import never changes trajectory rows or reviews.
+**What the run built.** For a run that writes files, the reader replays its file-writing calls
+(Write, Edit, MultiEdit, str_replace, apply_patch, shell here-documents, `cat a b > c`, plain
+`sed -i` substitutions and inline Python scripts made of string edits) into the successive
+versions of each file, and renders any version of an HTML deliverable in a sandboxed frame:
+step through versions, put a version next to the one before it, see the changed source lines.
+Inline scripts are evaluated by a small allow-list interpreter (`scriptlet.py`), never executed.
+A change the replay cannot follow marks the file inexact from that step, and the last version
+is compared with the deliverable the run kept, so the panel says whether the replay is the real
+file. The step bar gets a lane for the design behaviours (changes the deliverable, renders,
+looks at a picture, changes a support file) with counts per run: changes, looks, look-then-change
+rounds, changes after the last look. For a run with a v4 reward, each failed check that carries
+on-slide text is linked to the step that last changed that text or its style rule, and to the
+looks taken after it (`GET /api/trajectories/<id>/artifacts`, `…/artifact?path=&v=`).
+
 A trajectory with a v4 reward is judged by the reward, not by the harness verifier. The reward
 is a ladder (tier 0 scores nothing, each tier above it has its own range of R), so the list dot,
 the badge and the reader header show the tier and R. Where a yes / no is needed (the outcome

@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 from trajectory_workbench import adapters as adapter_registry
 from trajectory_workbench import (
-    excerpt, explorer, exporter, harness, practice, readiness, rewrite, rewrite_annotations, rewrite_review, search, signals,
+    artifact, excerpt, explorer, exporter, harness, practice, readiness, rewrite, rewrite_annotations, rewrite_review, search, signals,
 )
 from trajectory_workbench.insights import artifact_diff, compare_runs, error_aggregation
 from trajectory_workbench.jev import (
@@ -1562,6 +1562,46 @@ class WorkbenchService:
         if not candidate.is_file():
             raise FileNotFoundError(candidate)
         return candidate
+
+    # -- what the run built ---------------------------------------------------------------
+
+    def _replayed(self, trajectory_id: str) -> tuple[dict[str, Any], NormalizedRun, artifact.Replay]:
+        row, run = self._load(trajectory_id)
+        return row, run, self._derived(trajectory_id, run, "replay", lambda: artifact.replay(run))
+
+    def artifacts(self, trajectory_id: str) -> dict[str, Any]:
+        """The files the run wrote, version by version (without their text), its design
+        behaviours, and for a run with a v4 reward the step behind each failed check."""
+        row, run, state = self._replayed(trajectory_id)
+        files = artifact.history(state)
+        deliverables = (run.task or {}).get("deliverables") or []
+        root = Path(row["path"])
+        for entry in files:
+            if entry.get("deliverable") and root.is_dir():
+                final = artifact.compare_with_disk(state.files[entry["path"]], root, deliverables)
+                if final is not None:
+                    entry["final"] = final
+                    if final["matches"]:
+                        # The last version is the kept file: nothing went unseen.
+                        entry["uncertain_from_step"] = None
+        main = artifact.main_file(state)
+        reward = self.v4_reward_for(row)
+        return {
+            "files": files,
+            "main": main["path"] if main else None,
+            "deliverables": deliverables,
+            "events": state.events,
+            "behaviour": artifact.behaviour(state.events, len(run.messages)),
+            "checks": artifact.link_checks(main, state.events, reward.get("failed") or []) if reward else [],
+        }
+
+    def artifact_text(self, trajectory_id: str, path: str, version: int) -> str:
+        """The text of one replayed version of a file (version numbers start at 1)."""
+        _, _, state = self._replayed(trajectory_id)
+        entry = state.files.get(path)
+        if entry is None or not 1 <= version <= len(entry["contents"]):
+            raise KeyError(f"{path} v{version}")
+        return entry["contents"][version - 1]
 
     def get_errors(self, trajectory_id: str) -> dict[str, Any]:
         _, run = self._load(trajectory_id)

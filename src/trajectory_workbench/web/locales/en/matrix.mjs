@@ -1,8 +1,8 @@
 // English for the interface text in matrix. Key: the Chinese source text, exactly as written in t().
 export default {
-  "勾选 2 格可对比（已选 {n}）": "Tick 2 cells to compare ({n} selected)",
+  "勾选 2 格可对比（已选 {n}）": "Select 2 cells to compare ({n} selected)",
   "每道题在各集合上的结果": "Each task across collections",
-  "至少勾选两个集合。": "Tick at least two collections.",
+  "至少勾选两个集合。": "Select at least two collections.",
   "所选集合之间没有同一道题。同一批题跑在不同 checkpoint 上、各导入成一个集合后，这里按任务对齐。":
     "The chosen collections share no task. Import each checkpoint's runs of the same tasks as its own collection and they line up here by task.",
   "按题目": "By task",

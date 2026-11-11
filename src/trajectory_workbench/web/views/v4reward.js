@@ -7,7 +7,7 @@ const SEVERITY_TONE = { fatal: "bad", severe: "bad", major: "warn", normal: "war
 const STAGE_ORDER = ["L0-L1", "L2", "L3"];
 
 /** The slides-v4 RL reward of this trajectory's deck (scorer output, matched by task id + path). */
-export function renderV4Reward(reward) {
+export function renderV4Reward(reward, { checkNote } = {}) {
   const stillUrl = (relative) => api.v4StillUrl(reward.label, reward.task_id, relative);
   const stillFor = (viewport, slide) => {
     const list = reward.stills?.[viewport] || [];
@@ -24,6 +24,8 @@ export function renderV4Reward(reward) {
     [t("页"), reward.slides ?? "—"],
   ];
   const items = [...(reward.failed || []), ...(reward.derived_items || []).map((item) => ({ ...item, derived: true }))];
+  // A failed check is known to the replay by its position in reward.failed.
+  const failedIndex = new Map((reward.failed || []).map((item, index) => [item, index]));
   return h(
     "section",
     { class: "panel v4-reward" },
@@ -52,7 +54,7 @@ export function renderV4Reward(reward) {
             "div",
             { class: "v4-layer" },
             h("h3", {}, t("{layer} · {count} 项未通过", { layer: group.layer, count: group.items.length })),
-            group.items.map((item) => renderItem(item, stillFor, stillUrl))
+            group.items.map((item) => renderItem(item, stillFor, stillUrl, checkNote?.(failedIndex.get(item))))
           )
         )
       : h("p", { class: "muted" }, t("没有未通过的检查项")),
@@ -95,7 +97,7 @@ function renderRunInfo(reward) {
   );
 }
 
-function renderItem(item, stillFor, stillUrl) {
+function renderItem(item, stillFor, stillUrl, note) {
   const evidence = typeof item.evidence === "string" ? { note: item.evidence } : item.evidence || {};
   const viewport = evidence.viewport || "1920x1080";
   const slides = Array.isArray(item.slides) ? item.slides : [];
@@ -114,7 +116,8 @@ function renderItem(item, stillFor, stillUrl) {
       slides.length ? h("small", {}, t("第 {pages} 页", { pages: slides.join(t("、")) })) : null
     ),
     evidence.note ? h("div", { class: "ledger-text" }, evidence.note) : null,
-    crops.length ? h("div", { class: "v4-crops" }, crops) : boxes.length ? h("small", { class: "muted" }, t("（没有 {viewport} 的截图）", { viewport })) : null
+    crops.length ? h("div", { class: "v4-crops" }, crops) : boxes.length ? h("small", { class: "muted" }, t("（没有 {viewport} 的截图）", { viewport })) : null,
+    note || null
   );
 }
 

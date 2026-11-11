@@ -196,6 +196,25 @@ def create_server(
                     self.end_headers()
                     self.wfile.write(body)
                     return
+                if tail == ["artifacts"]:
+                    return self._json(service.artifacts(trajectory_id))
+                if tail == ["artifact"]:
+                    # One replayed version of a file the run wrote. It is the model's own
+                    # page, so it is served into a sandbox: scripts run, but with no origin,
+                    # so the page cannot read this server or anything the browser holds for it.
+                    name = one("path") or ""
+                    text = service.artifact_text(trajectory_id, name, self._int(query, "v", 1))
+                    as_page = name.lower().endswith((".html", ".htm")) and one("text") != "1"
+                    body = text.encode("utf-8")
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", ("text/html" if as_page else "text/plain") + "; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Content-Security-Policy", "sandbox allow-scripts")
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
                 if tail == ["errors"]:
                     return self._json(service.get_errors(trajectory_id))
                 if tail == ["artifact-diffs"]:

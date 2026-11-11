@@ -192,4 +192,10 @@ export default {
   "未调用": "Not called",
   "v4 奖励（以此为准）": "v4 reward (this is the verdict)",
   "评测脚本：{status}（不作数）": "verifier: {status} (not counted)",
+  "思考内容显示多少": "How much of the thinking to show",
+  "思考：显示开头": "Thinking: opening",
+  "思考：全部展开": "Thinking: full",
+  "思考：收起": "Thinking: folded",
+  "与上方任务说明相同（{count} 字），点开看原文": "Same as the task above ({count} chars); open to read it",
+  "展开思考全文（共 {count} 字）": "Show all of the thinking ({count} chars)",
 };

@@ -81,6 +81,14 @@ export const api = {
   exportUrl: (collection) => API_ROOT + "/reviews/export" + query({ collection }),
   v4StillUrl: (label, taskId, relativePath) =>
     API_ROOT + "/v4-rewards/" + id(label) + "/" + id(taskId) + "/still" + query({ path: relativePath }),
+  // What the run built: the replayed versions of its files (see artifact.py on the server).
+  artifacts: (trajectoryId) => request("/trajectories/" + id(trajectoryId) + "/artifacts"),
+  artifactUrl: (trajectoryId, path, version) => API_ROOT + "/trajectories/" + id(trajectoryId) + "/artifact" + query({ path, v: version }),
+  artifactText: async (trajectoryId, path, version) => {
+    const response = await fetch(API_ROOT + "/trajectories/" + id(trajectoryId) + "/artifact" + query({ path, v: version, text: 1 }));
+    if (!response.ok) throw new Error(response.status + " " + response.statusText);
+    return response.text();
+  },
   fileUrl: (trajectoryId, relativePath) =>
     API_ROOT + "/trajectories/" + id(trajectoryId) + "/files/" + relativePath.split("/").map(encodeURIComponent).join("/"),
 };

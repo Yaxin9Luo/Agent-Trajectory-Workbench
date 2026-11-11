@@ -29,9 +29,11 @@ import { highlighted } from "./search.js";
 import { renderMohPanels } from "./moh.js";
 import { renderReviewPanel } from "./review.js";
 import { renderV4Reward } from "./v4reward.js";
+import { createReplay } from "./replay.js";
 import { t, tb } from "../i18n.mjs";
 
 const TEXT_CLIP = 6000;
+const THINKING_HEAD = 600;
 const CHANGE_LABELS = { edit: t("改动"), write: t("写入"), patch: t("补丁") };
 // foldText says what it hid in "行" (lines) or "字" (characters).
 const UNIT_LABELS = { 行: t("行"), 字: t("字") };
@@ -61,7 +63,16 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     onlyHighlighted: false,
     revealed: !ctx.blind || Boolean(run.review?.predicted_status),
     compact: remember("reader.compact") === "1",
+    // How much of the model's thinking a step shows: "head" (its opening), "full", "folded".
+    thinking: remember("reader.thinking") || "head",
   };
+  // What the run built (replayed file versions), its design behaviours, and the step
+  // behind each failed reward check. Loaded after the page: it parses the whole run.
+  const replay = createReplay({
+    trajectoryId,
+    jump: (step) => jumpTo(step),
+    onLoaded: () => { if (still()) renderHeader(); },
+  });
 
   const notes = createAnnotations({ ctx }, trajectoryId, () => {
     transcript.querySelectorAll("article.message").forEach((article) => notes.decorate(article.querySelector(".step-notes"), Number(article.dataset.step)));
@@ -81,8 +92,9 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     "section",
     { class: "rail-panel panel" },
     h("div", { class: "rail-legend" }),
-    h("div", { class: "rail-scroll" }, rail, contextRow, clockRow),
-    trackLegend
+    h("div", { class: "rail-scroll" }, rail, replay.lane, contextRow, clockRow),
+    trackLegend,
+    h("div", { class: "track-legend" }, replay.laneLegend)
   );
   const transcriptTools = h("div", { class: "transcript-tools" });
   const transcript = h("div", { class: "messages" });
@@ -116,6 +128,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     episodeStrip,
     taskCard,
     v4Slot,
+    replay.panel,
     signalRow,
     railPanel,
     h("div", { class: "work-grid" }, h("section", { class: "transcript panel" }, transcriptTools, earlier, transcript, more), side)
@@ -209,7 +222,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       );
     }
     // The v4 reward is a score too: in blind mode it waits for the reader's own verdict.
-    clear(v4Slot, run.v4_reward ? (state.revealed ? renderV4Reward(run.v4_reward) : h("section", { class: "panel v4-reward hidden-verdict" }, h("strong", {}, t("v4 奖励已隐藏：先给出你的判断")))) : null);
+    clear(v4Slot, run.v4_reward ? (state.revealed ? renderV4Reward(run.v4_reward, { checkNote: replay.checkNote }) : h("section", { class: "panel v4-reward hidden-verdict" }, h("strong", {}, t("v4 奖励已隐藏：先给出你的判断")))) : null);
     clear(
       header,
       h(
@@ -458,6 +471,20 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       : null;
     const clearHighlight = state.highlight ? h("button", { type: "button", class: "link-button", onclick: () => setHighlight(null, null) }, t("清除高亮")) : null;
     const compact = h("button", { type: "button", "aria-pressed": String(Boolean(state.compact)), title: t("一步一行（c）"), onclick: () => setCompact(!state.compact) }, t("紧凑"));
+    const thinking = h(
+      "select",
+      {
+        "aria-label": t("思考内容显示多少"),
+        title: t("思考内容显示多少"),
+        onchange: (event) => {
+          state.thinking = event.target.value;
+          persist("reader.thinking", state.thinking);
+          const at = focused ? Number(focused.dataset.step) : null;
+          loadMessages(windowStart, "replace", Math.max(PAGE, windowEnd - windowStart)).then(() => { if (at) document.getElementById("step-" + at)?.scrollIntoView({ block: "center" }); });
+        },
+      },
+      [["head", t("思考：显示开头")], ["full", t("思考：全部展开")], ["folded", t("思考：收起")]].map(([value, label]) => h("option", { value, selected: state.thinking === value }, label))
+    );
     const training = h(
       "button",
       {
@@ -472,7 +499,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       },
       t("训练视角")
     );
-    clear(transcriptTools, h("div", { class: "role-filters" }, roleButtons), search, only, clearHighlight, compact, training, exportPanel, shortcuts);
+    clear(transcriptTools, h("div", { class: "role-filters" }, roleButtons), search, only, clearHighlight, compact, thinking, training, exportPanel, shortcuts);
   }
 
   // The transcript shows a window [windowStart, windowEnd) of the (filtered) message list,
@@ -589,12 +616,13 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       if (!state.compact || event.target.closest("button, a, summary, input, details[open] pre")) return;
       article.classList.toggle("expanded");
     });
-    if (message.thinking) {
-      const preview = message.thinking.length > 280 ? message.thinking.slice(0, 280) + "…" : message.thinking;
-      const block = h("details", { class: "thinking-detail" }, h("summary", {}, t("思考") + " · " + preview.replace(/\s+/g, " ")), clipped("div", "thinking-text", message.thinking));
-      article.append(block);
+    if (message.thinking) article.append(renderThinking(message.thinking));
+    if (message.text) {
+      // The first user turn usually repeats the task shown in the card above.
+      const instruction = (run.task?.instruction || "").trim();
+      const repeats = message.role === "user" && instruction.length > 200 && message.text.trim().slice(0, 200) === instruction.slice(0, 200);
+      article.append(repeats ? h("details", { class: "repeat-task" }, h("summary", {}, t("与上方任务说明相同（{count} 字），点开看原文", { count: formatCount(message.text.length) })), clipped("div", "message-text", message.text)) : clipped("div", "message-text", message.text));
     }
-    if (message.text) article.append(clipped("div", "message-text", message.text));
     appendImages(article, message.images, t("消息图片"));
     message.tools.forEach((tool) => article.append(renderTool(tool)));
     if (message.native_result) article.append(details(t("原生 result 记录"), JSON.stringify(message.native_result, null, 2)));
@@ -656,6 +684,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     const output = result ? result.text : t("没有匹配的工具返回");
     box.append(details(result?.is_error ? t("返回 · 报错") : t("返回"), folded(output), Boolean(result?.is_error)));
     if (tool.repeat_of && result) box.append(repeatDiff(tool));
+    replay.mark(box, tool);
     appendImages(box, result?.images || [], tool.name);
     const child = spawned.get(tool.id);
     if (child) {
@@ -762,6 +791,20 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       t("同一命令在 #{step} 跑过 · 对比输出", { step: tool.repeat_of.step })
     );
     return h("div", { class: "repeat-row" }, button, slot);
+  }
+
+  /** A step's thinking. For some models it is nearly all they write, so its opening shows
+   *  by default; the toolbar chooses between the opening, all of it, or one folded line. */
+  function renderThinking(text) {
+    if (state.thinking === "folded") {
+      const preview = text.length > 280 ? text.slice(0, 280) + "…" : text;
+      return h("details", { class: "thinking-detail" }, h("summary", {}, t("思考") + " · " + preview.replace(/\s+/g, " ")), clipped("div", "thinking-text", text));
+    }
+    const label = h("span", { class: "thinking-label" }, t("思考"));
+    if (state.thinking === "full" || text.length <= THINKING_HEAD + 200) return h("div", { class: "thinking-block" }, label, clipped("div", "thinking-text", text));
+    const body = h("div", { class: "thinking-text" }, text.slice(0, THINKING_HEAD) + "…");
+    const more = h("button", { type: "button", class: "link-button", onclick: () => { body.replaceWith(clipped("div", "thinking-text", text)); more.remove(); } }, t("展开思考全文（共 {count} 字）", { count: formatCount(text.length) }));
+    return h("div", { class: "thinking-block" }, label, body, more);
   }
 
   function clipped(tag, className, text) {
@@ -938,6 +981,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   renderTabs();
   notes.load().catch(() => null);
   transcript.classList.toggle("compact", Boolean(state.compact));
+  replay.load();
   await loadMessages(initialStep > 0 ? Math.max(0, initialStep - 1 - 20) : 0);
   if (initialStep > 0 && still()) {
     await jumpTo(initialStep, { smooth: false });

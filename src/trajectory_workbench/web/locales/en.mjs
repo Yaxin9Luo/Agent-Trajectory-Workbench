@@ -18,8 +18,9 @@ import annotations from "./en/annotations.mjs";
 import search from "./en/search.mjs";
 import presentation from "./en/presentation.mjs";
 import app from "./en/app.mjs";
+import replay from "./en/replay.mjs";
 import backend from "./en/backend.mjs";
 
-export const TABLES = { rewrites, "rewrite-batch": rewrite_batch, reader, jev, ledgers, moh, library, stats, pair, matrix, queue, explore, review, v4reward, annotations, search, presentation, app, backend };
+export const TABLES = { rewrites, "rewrite-batch": rewrite_batch, reader, jev, ledgers, moh, library, stats, pair, matrix, queue, explore, review, v4reward, annotations, search, presentation, app, replay, backend };
 
 export default Object.assign({}, ...Object.values(TABLES));

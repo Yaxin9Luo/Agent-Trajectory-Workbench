@@ -293,7 +293,7 @@ pre { margin: 6px 0 0; max-height: 420px; overflow: auto; padding: 9px 10px; bor
 .tool-box details { margin-top: 5px; font-size: 12px; }
 .tool-box summary { color: var(--muted); }
 .tool-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
-.tool-images img, .workbench-card img { max-width: 220px; max-height: 150px; border-radius: 6px; border: 1px solid var(--line); cursor: zoom-in; object-fit: cover; }
+.tool-images img, .workbench-card img { max-width: min(460px, 100%); max-height: 270px; border-radius: 6px; border: 1px solid var(--line); cursor: zoom-in; object-fit: cover; }
 
 /* ---- side panels -------------------------------------------------------------- */
 .inspector { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; padding-right: 2px; }
@@ -866,3 +866,40 @@ mark.rr-residue { background: none; color: inherit; text-decoration: underline d
 .matrix-more summary { cursor: pointer; color: var(--blue); font: 600 11px var(--mono); list-style: none; }
 .matrix-more summary::-webkit-details-marker { display: none; }
 .matrix-more > div { display: grid; gap: 3px; margin-top: 4px; font-size: 10.5px; }
+
+/* What the run built: replayed versions of the deliverable, the design lane, check links. */
+.replay-panel { padding: 14px 16px; margin-bottom: 12px; display: grid; gap: 10px; }
+.replay-file { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; }
+.replay-file code { color: var(--muted); font-size: 11px; }
+.replay-facts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0; font-size: 12px; color: var(--muted); }
+.replay-strip { display: flex; flex-wrap: wrap; gap: 4px; }
+.replay-version { padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--paper-2); color: var(--muted); font: 11px var(--mono); cursor: pointer; }
+.replay-version.current { background: var(--ink); border-color: var(--ink); color: #fff; }
+.replay-version.uncertain { border-style: dashed; }
+.replay-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; }
+.replay-current { color: var(--muted); font: 11px var(--mono); }
+.replay-frames { display: grid; gap: 10px; }
+.replay-frames.two { grid-template-columns: 1fr 1fr; }
+.replay-frame { min-width: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #0b0d12; }
+.replay-frame-label { padding: 4px 8px; background: var(--paper-2); color: var(--muted); font: 11px var(--mono); border-bottom: 1px solid var(--line); }
+.replay-scale { position: relative; overflow: hidden; }
+.replay-scale iframe { width: 1920px; height: 1080px; border: 0; transform-origin: 0 0; display: block; background: #fff; }
+.replay-source { max-height: 480px; overflow: auto; }
+.replay-diff pre.diff { max-height: 360px; }
+.replay-mark { display: block; margin-top: 6px; }
+.design-row .design-cell { height: 9px; background: var(--line-soft); border-radius: 2px; }
+.design-row .design-cell.ev-support { background: #c7cedb; }
+.design-row .design-cell.ev-render { background: #7fb2e0; }
+.design-row .design-cell.ev-look { background: #8e6fd1; }
+.design-row .design-cell.ev-change { background: #e08a2c; }
+.design-row .design-cell.ev-change.ev-look { background: linear-gradient(90deg, #e08a2c 50%, #8e6fd1 50%); }
+.design-legend { display: inline-flex; flex-wrap: wrap; gap: 10px; }
+.track-legend .legend.ev-support::before { background: #c7cedb; } .track-legend .legend.ev-render::before { background: #7fb2e0; }
+.track-legend .legend.ev-look::before { background: #8e6fd1; } .track-legend .legend.ev-change::before { background: #e08a2c; }
+.track-legend .legend[class*="ev-"] { background: none; }
+.check-link { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11.5px; color: var(--muted); }
+.thinking-block { margin: 2px 0 6px; }
+.thinking-label { display: inline-block; margin-bottom: 2px; color: #7a6aa0; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+.thinking-block .thinking-text { margin-top: 2px; }
+.repeat-task summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+@media (max-width: 900px) { .replay-frames.two { grid-template-columns: 1fr; } }
