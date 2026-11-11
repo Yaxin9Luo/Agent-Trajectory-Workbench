@@ -170,7 +170,7 @@ def is_mutation(tool: dict[str, Any]) -> bool:
     name = base_name(tool["name"])
     if name in MUTATING_TOOLS:
         return True
-    if name in SHELL_TOOLS or name == "exec":
+    if name in SHELL_TOOLS:
         return bool(SHELL_MUTATION.search(command_text(tool)))
     if isinstance(tool.get("input"), dict) and tool["input"].get("command") in {"create", "str_replace", "insert"}:
         return True
@@ -180,7 +180,7 @@ def is_mutation(tool: dict[str, Any]) -> bool:
 def is_check(tool: dict[str, Any], mutated: set[str]) -> str | None:
     """Return why this call counts as checking earlier changes, or None."""
     name = base_name(tool["name"])
-    if name in SHELL_TOOLS or name == "exec":
+    if name in SHELL_TOOLS:
         command = command_text(tool)
         if is_mutation(tool) and not CHECK_COMMAND.search(command):
             return None
@@ -198,10 +198,12 @@ def is_check(tool: dict[str, Any], mutated: set[str]) -> str | None:
     return None
 
 
-def harness_layer(tool: dict[str, Any]) -> str:
-    """Which harness layer a call belongs to: base agent tool, MCP, skill or subagent."""
+def harness_layer(tool: dict[str, Any], base: str | None = None) -> str:
+    """Which harness layer a call belongs to: base agent tool, MCP, skill or subagent.
+    With the base agent known, its own namespaced tools (Codex `clock__sleep`) are base."""
     raw = tool.get("raw_name") or tool["name"]
-    if raw.startswith("mcp__") or "__" in raw and not raw.startswith("collaboration__"):
+    native = harness.NATIVE_TOOLS.get(base or "", set())
+    if raw.startswith("mcp__") or "__" in raw and not raw.startswith("collaboration__") and base_name(raw) not in native:
         return "mcp"
     name = base_name(raw)
     if name in {"skill", "use_skill", "load_skill"}:
@@ -372,7 +374,7 @@ def compute(run: Any) -> dict[str, Any]:
     # Harness layers (base agent / MCP / skill / subagent) and instruction injection.
     layers: dict[str, int] = {"base": 0, "mcp": 0, "skill": 0, "subagent": 0}
     for tool in tools:
-        layers[harness_layer(tool)] += 1
+        layers[harness_layer(tool, trace["base"])] += 1
     values["layers"] = {
         **layers,
         "hook_events": sum(1 for m in messages if m.get("layer") == "hook"),

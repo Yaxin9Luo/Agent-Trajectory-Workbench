@@ -298,11 +298,21 @@ export async function renderQueue(root, ctx, batchId, params, still) {
     clear(more, state.items.length < state.total ? h("button", { type: "button", onclick: loadMore }, t("继续加载（{n} / {total}）", { n: state.items.length, total: state.total })) : null);
   }
 
-  async function loadMore() {
-    const page = await api.rewriteChanges(batchId, { ...filters, offset: state.items.length, limit: 40 });
-    state.items.push(...page.items);
-    Object.assign(state.plan, page.plan);
-    renderList();
+  // One page at a time: a second call while one is loading (j pressed twice at the end, a
+  // double click) gets the same promise instead of appending the same page again.
+  let loading = null;
+  function loadMore() {
+    loading ||= api
+      .rewriteChanges(batchId, { ...filters, offset: state.items.length, limit: 40 })
+      .then((page) => {
+        state.items.push(...page.items);
+        Object.assign(state.plan, page.plan);
+        renderList();
+      })
+      .finally(() => {
+        loading = null;
+      });
+    return loading;
   }
 
   function focus(index, scroll = false) {
@@ -318,9 +328,13 @@ export async function renderQueue(root, ctx, batchId, params, still) {
   }
 
   async function judge(verdict, errorType = null) {
-    const item = state.items[state.index];
+    // Keys keep coming while the verdict is saved: everything after the await uses this index.
+    const index = state.index;
+    const item = state.items[index];
     if (!item) return;
-    const note = inspector.querySelector("textarea")?.value || item.verdict?.note || "";
+    const textarea = inspector.querySelector("textarea");
+    // An emptied note is a cleared note, not a reason to keep the old one.
+    const note = textarea ? textarea.value : item.verdict?.note || "";
     if (verdict === "error" && !errorType) {
       state.awaitingType = true;
       renderInspector();
@@ -332,20 +346,44 @@ export async function renderQueue(root, ctx, batchId, params, still) {
       renderInspector();
       return;
     }
+    const fresh = !item.verdict;
     try {
-      const result = await api.rewriteVerdict(batchId, item.sample_id, { key: item.id, kind: "change", verdict, error_type: errorType, note });
-      const fresh = !item.verdict;
+      const result = await sendVerdict(item, { verdict, error_type: errorType, note });
       item.verdict = result.verdict;
-      const card = list.querySelector('[data-index="' + state.index + '"]');
-      card?.replaceWith(cardFor(item, state.index));
+      list.querySelector('[data-index="' + index + '"]')?.replaceWith(cardFor(item, index));
+      // The user has moved on meanwhile: leave the card they are on alone.
+      if (state.index !== index) return;
       if (fresh) {
-        const next = state.items.findIndex((candidate, index) => index > state.index && !candidate.verdict);
+        const next = state.items.findIndex((candidate, position) => position > index && !candidate.verdict);
         if (next >= 0) return focus(next, true);
       }
       state.awaitingType = false;
       renderInspector();
     } catch (error) {
-      state.message = error.message;
+      state.message = state.index === index ? error.message : t("第 {n} 处没存上：{error}", { n: index + 1, error: error.message });
+      renderInspector();
+    }
+  }
+
+  // Verdict saves go out one after another: the note saved when the textarea loses focus and the
+  // verdict click that took the focus away must reach the server in that order.
+  let saving = Promise.resolve();
+  function sendVerdict(item, fields) {
+    const request = saving.then(() => api.rewriteVerdict(batchId, item.sample_id, { key: item.id, kind: "change", ...fields }));
+    saving = request.catch(() => {});
+    return request;
+  }
+
+  /** Save an edited note on a change that already has a verdict, as the record page does. */
+  async function saveNote(item, note) {
+    if (!item.verdict || note === (item.verdict.note || "")) return;
+    const index = state.items.indexOf(item);
+    try {
+      const result = await sendVerdict(item, { verdict: item.verdict.verdict, error_type: item.verdict.error_type, note });
+      item.verdict = result.verdict;
+      list.querySelector('[data-index="' + index + '"]')?.replaceWith(cardFor(item, index));
+    } catch (error) {
+      state.message = state.index === index ? error.message : t("第 {n} 处没存上：{error}", { n: index + 1, error: error.message });
       renderInspector();
     }
   }
@@ -383,6 +421,7 @@ export async function renderQueue(root, ctx, batchId, params, still) {
     );
     const note = h("textarea", { rows: 2, placeholder: t("备注（可选；类型选“其他”时必填）") });
     note.value = current?.note || "";
+    note.addEventListener("change", () => saveNote(item, note.value));
     clear(
       inspector,
       h(

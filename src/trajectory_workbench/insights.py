@@ -66,9 +66,10 @@ def artifact_diff(normalized: Any, root: Path) -> dict[str, Any]:
         return {"state_count": len(states), "diffs": []}
 
     diffs: list[dict[str, Any]] = []
+    files = _artifact_files(root)
     for before, after in zip(states, states[1:]):
-        before_lines = _read_artifact_lines(root, before["artifact_sha256"])
-        after_lines = _read_artifact_lines(root, after["artifact_sha256"])
+        before_lines = _read_artifact_lines(files, before["artifact_sha256"])
+        after_lines = _read_artifact_lines(files, after["artifact_sha256"])
         if before_lines is None or after_lines is None:
             diffs.append(
                 {
@@ -106,22 +107,29 @@ def artifact_diff(normalized: Any, root: Path) -> dict[str, Any]:
     return {"state_count": len(states), "diffs": diffs}
 
 
-def _read_artifact_lines(root: Path, sha256: str) -> list[str] | None:
+def _artifact_files(root: Path) -> dict[str, Path]:
+    """Every saved artifact under the run, by content hash (each file is read once)."""
     import hashlib
 
     candidates = sorted(root.glob("attempts/**/artifact.html"))
     candidates.extend(sorted(root.glob("attempts/**/records/**/*.html")))
+    files: dict[str, Path] = {}
     for candidate in candidates:
         try:
-            digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+            files.setdefault(hashlib.sha256(candidate.read_bytes()).hexdigest(), candidate)
         except OSError:
             continue
-        if digest == sha256:
-            try:
-                return candidate.read_text(encoding="utf-8").splitlines()
-            except (OSError, UnicodeDecodeError):
-                return None
-    return None
+    return files
+
+
+def _read_artifact_lines(files: dict[str, Path], sha256: str) -> list[str] | None:
+    candidate = files.get(sha256)
+    if candidate is None:
+        return None
+    try:
+        return candidate.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
 
 
 def compare_runs(runs: list[Any]) -> dict[str, Any]:

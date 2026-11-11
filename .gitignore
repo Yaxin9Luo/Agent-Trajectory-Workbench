@@ -5,3 +5,7 @@ __pycache__/
 .agent-trajectory-workbench/
 src/*.egg-info/
 .claude/launch.json
+.playwright-cli/
+.DS_Store
+dist/
+build/

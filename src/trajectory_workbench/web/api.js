@@ -74,6 +74,7 @@ export const api = {
   rewriteVerdict: (batchId, sampleId, fields) => post("/rewrite-batches/" + id(batchId) + "/records/" + id(sampleId) + "/verdicts", fields),
   correctionsUrl: (collection, kind) => API_ROOT + "/corrections/export" + query({ collection, kind }),
   job: (jobId) => request("/jobs/" + id(jobId)),
+  jobs: () => request("/jobs"),
   exportUrl: (collection) => API_ROOT + "/reviews/export" + query({ collection }),
   v4StillUrl: (label, taskId, relativePath) =>
     API_ROOT + "/v4-rewards/" + id(label) + "/" + id(taskId) + "/still" + query({ path: relativePath }),
@@ -81,11 +82,22 @@ export const api = {
     API_ROOT + "/trajectories/" + id(trajectoryId) + "/files/" + relativePath.split("/").map(encodeURIComponent).join("/"),
 };
 
-export async function pollJob(jobId, onProgress, interval = 700) {
+/**
+ * Poll a job until it ends. With `active`, polling stops (returning null) once `active()` is
+ * false, so a view that was left does not keep asking.
+ */
+export async function pollJob(jobId, onProgress, interval = 700, active = null) {
   for (;;) {
     const job = await api.job(jobId);
+    if (active && !active()) return null;
     onProgress?.(job);
     if (job.status !== "running") return job;
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
+}
+
+/** The running job of `kind` on `scope` (a collection name; "" is all of them), or null. */
+export async function runningJob(kind, scope) {
+  const { jobs } = await api.jobs();
+  return jobs.find((job) => job.kind === kind && job.scope === scope && job.status === "running") || null;
 }

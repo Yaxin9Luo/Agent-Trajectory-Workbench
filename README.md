@@ -28,20 +28,26 @@ PORT=8416 ./deploy.sh status
 PORT=8416 ./deploy.sh stop
 ```
 
+A start waits up to `START_TIMEOUT` seconds (default 60) for `/api/health`, since opening a
+large index takes a while.
+
 ## Interface language
 
 The interface is in Chinese and English; the switch is in the sidebar and the choice is kept in
 the browser (the first visit follows the browser language). The Chinese text in the source is the
 key: `t("…")` in `web/i18n.mjs` looks it up in `web/locales/en/<file>.mjs`, and `tb(…)` translates
 labels and sentences the server writes in Chinese (`web/locales/en/backend.mjs`). Trajectory
-content, notes and exported files are never translated. `tests/test_i18n.mjs` fails when interface
-text is added without `t()` or without an English entry.
+content, notes and exported files are never translated. `tests/test_i18n.mjs` fails when a Chinese
+string literal in the interface code is not passed to `t()`, or a `t("…")` text has no English
+entry; server sentences are covered only by the patterns in `backend.mjs`.
 
 ## Import trajectories
 
 Paste an absolute path into the sidebar form, or use the CLI. A path can be a single file,
 a run directory, or any directory tree; recognizable sources inside it are found
 recursively. Importing a Claude Code session file also imports its `subagents/`.
+A MoH run directory with several `attempts/` is imported as its first attempt, sorted by
+name; the other attempts are not read.
 
 ```bash
 ./trajectory-workbench import ~/.claude/projects --collection "Claude Code sessions"
@@ -97,9 +103,11 @@ and member role. Tick two rows to compare.
   to the next step); on tall screens the rail stays on top and marks what is on screen;
 - signal chips that highlight their evidence steps; harness-layer counts;
 - transcript loaded as a window, so `#/t/<id>?step=N` opens any step directly; long
-  outputs folded to head and tail; "same command as step N" diffs the two outputs; images
-  load on demand; compact mode (one line per step); training view (trained tokens of the
-  model's own turns highlighted, context dimmed);
+  outputs, and single huge lines (minified JSON, base64), folded to head and tail, tool
+  inputs too; Edit / MultiEdit / str_replace / Write / apply_patch calls shown as diffs (or
+  the written text), the raw input in a closed section below; "same command as step N"
+  diffs the two outputs; images load on demand; compact mode (one line per step); training
+  view (trained tokens of the model's own turns highlighted, context dimmed);
 - keyboard: `j/k` steps, `J/K` model steps, `n/p` highlighted steps, `e/E` tool errors,
   `t` turning point, `a` annotate, `c` compact, `o` expand, `/` search, `[ ]` queue, `?` this list;
 - per-step annotations (with a label) and a Markdown excerpt of chosen steps;
@@ -107,7 +115,9 @@ and member role. Tick two rows to compare.
   other attempts at the same task, tool catalog, MoH panels; **台账** tab: requirement, compaction, delegation, plan/todo
   and hook-reminder ledgers; **阅读记录** tab: the review form.
 
-**Jev assistance** (runs when a trajectory is opened; ~2–4 s and ~$0.002–0.01 each)
+**Jev assistance** (~2–4 s and ~$0.002–0.01 each). The step scan runs when a
+trajectory is opened only if it has at most 300 model steps; for a longer one the panel shows
+the estimated tokens and cost and waits for a click.
 - one request per agent step with only that step and the tool results it reacts to:
   phase (explore / plan / implement / verify / debug / report), noticed a problem, ignored
   an error, claimed completion, dependence on what the harness added (below). Misread a
@@ -200,7 +210,8 @@ added text in green, residue underlined in amber; unchanged steps fold away; rem
 changed calls and merges are grey event bars; a minimap shows where the changes are. The
 inspector shows the selected change with the pipeline's notes and takes a verdict (keys:
 `j`/`k` next / previous change, `1` right, `2` wrong then `1`–`6` for the error type, `3`
-unsure; `t` training view, `o` side by side, `J`/`K` next / previous record). Select text to
+unsure; `t` training view, `o` side by side, `e` expand / fold all, `Esc` back to the record
+overview, `?` the shortcut list, `J`/`K` next / previous record). Select text to
 mark a missed spot. The batch overview shows the funnel (records, changes recorded or
 not by the pipeline, warnings, residue, summary sync, verdicts, gate), change counts and
 error rates by category, warning and plan item, which warning types hold records for
@@ -210,7 +221,7 @@ every change of the batch, riskiest first, for keyboard review. Each record gets
 the pipeline status, verdicts, open residue, summary sync and warned changes not yet judged.
 
 ```bash
-trajectory-workbench rewrite-batch pilot --original ORIGINAL_COLLECTION \
+./trajectory-workbench rewrite-batch pilot --original ORIGINAL_COLLECTION \
   --rewritten-path /abs/run/rewritten.jsonl --annotations /abs/run
 ```
 
@@ -248,14 +259,20 @@ carry a severity and whether it decided the outcome.
 ## CLI
 
 ```bash
-./trajectory-workbench --db /path/index.db serve --port 8899      # separate index
+./trajectory-workbench --db /path/index.db --registry /dev/null serve --port 8899   # separate, empty index
 ./trajectory-workbench analyze --collection "K3 SFT 0912" --limit 500   # batch Jev
 ./trajectory-workbench export out/k3-ready --collection "K3 SFT 0912" --ready-only --mode raw
+./trajectory-workbench export out/k3-fail --collection "K3 SFT 0912" --outcome fail --roles main,segment --mode chat
 ./trajectory-workbench export-reviews > reviews.jsonl
 ./trajectory-workbench export-jev "K3 SFT 0912" jev.jsonl --url-base http://host:8416   # Jev results, one line per trajectory
 ./trajectory-workbench remove-collection "K3 SFT 0912"          # reports what would go; add --yes to delete from the index
 ./trajectory-workbench import-v4-reward /path/score-root --label q38-v4 --runs-root /path/sandbox_results/Run_1106
 ```
+
+A new, empty index imports the runs listed in the legacy `~/.agent-trajectory-workbench/registry.json`
+when it is first opened; `--registry /dev/null` (or any path that is not a file) keeps it empty.
+`export --outcome` keeps one grader outcome (`pass`, `partial`, `fail`, `error`, `unknown`);
+`--roles` keeps episode members by role (comma-separated `main`, `segment`, `subagent`; default all).
 
 `import-v4-reward` indexes a slides-v4 scoring root (`work/<task>/reward.json`; folders
 starting with `_` are skipped) under a label; importing the same label again replaces it.
@@ -275,14 +292,14 @@ page, to fill in fields added later). Optional environment variables:
 (default 8), `TRAJECTORY_WORKBENCH_JEV_TIMEOUT` (seconds per request, default 60), `TRAJECTORY_WORKBENCH_MAX_SEQ_LEN`, `TRAJECTORY_WORKBENCH_EXPORT_ROOT`.
 
 The server has no login: bind it to 127.0.0.1, or on a shared machine only on a network
-you trust. POST requests must be `application/json`, and run artifacts under `/files/`
-are served in a sandboxed origin.
+you trust. POST requests must be `application/json`, and run artifacts under
+`/api/trajectories/<id>/files/…` are served in a sandboxed origin.
 
 ## Tests
 
 ```bash
 PYTHONPATH=src:. uv run python -m unittest discover -s tests
-node --test tests/test_presentation.mjs tests/test_rendering.mjs
+node --test tests/*.mjs
 ```
 
 Opt-in smoke test over real data (files or directories, any supported format):

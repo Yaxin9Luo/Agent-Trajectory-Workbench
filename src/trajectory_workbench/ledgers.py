@@ -37,9 +37,18 @@ REQUIREMENT_HINT = re.compile(
     r"必须|需要|要求|不要|不得|禁止|务必|确保|至少|最多|只能|应当|应该|保留|包含",
     re.IGNORECASE,
 )
-BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)、])\s+")
+BULLET = re.compile(r"^\s*(?:[-*•]\s+|\d+[.)]\s+|\d+、\s*)")
 FILE_LINE = re.compile(r"^\s*(?:[-*•]\s*)?`?\s*[\w./-]+\.\w{1,5}\s*`?\s*$")
-SENTENCE_END = re.compile(r"(?<=[.!?。！？；;])\s+|(?<=[。！？；])")
+# "e.g. " and "i.e. " do not end a sentence.
+SENTENCE_END = re.compile(r"(?<=[.!?。！？；;])(?<![eE]\.[gG]\.)(?<![iI]\.[eE]\.)\s+|(?<=[。！？；])")
+CJK = re.compile(r"[㐀-鿿豈-﫿぀-ヿ가-힯]")
+
+
+def sentence_width(sentence: str) -> float:
+    """Length in Latin characters: a CJK character carries about as much as 2.5 of them."""
+    return len(sentence) + 1.5 * len(CJK.findall(sentence))
+
+
 def requirement_candidates(task: str, limit: int = MAX_REQUIREMENTS) -> list[str]:
     """Sentences and bullet items of the task that may state a requirement.
 
@@ -56,7 +65,7 @@ def requirement_candidates(task: str, limit: int = MAX_REQUIREMENTS) -> list[str
             continue
         for sentence in SENTENCE_END.split(stripped):
             sentence = sentence.strip()
-            if len(sentence) >= 12:
+            if sentence_width(sentence) >= 12:
                 candidates.append((0 if REQUIREMENT_HINT.search(sentence) else 1, sentence))
     seen: set[str] = set()
     unique = []

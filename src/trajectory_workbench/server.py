@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import shutil
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from trajectory_workbench import __version__
 from trajectory_workbench.registry import DEFAULT_REGISTRY_PATH
 from trajectory_workbench.service import WorkbenchService
 from trajectory_workbench.store import Store
@@ -27,7 +30,7 @@ def create_server(
     service = service or WorkbenchService(Store(db_path), legacy_registry=legacy_registry)
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "TrajectoryWorkbench/0.2"
+        server_version = f"TrajectoryWorkbench/{__version__}"
 
         def do_GET(self) -> None:
             self._guard(self._get)
@@ -367,19 +370,21 @@ def create_server(
             self._file(candidate)
 
         def _file(self, path: Path, *, sandbox: bool = False) -> None:
-            content = path.read_bytes()
             media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             if path.suffix == ".mjs":
                 media_type = "text/javascript"
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", media_type)
-            self.send_header("Content-Length", str(len(content)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            if sandbox:
-                self.send_header("Content-Security-Policy", "sandbox allow-scripts")
-            self.end_headers()
-            self.wfile.write(content)
+            # Streamed: a run directory can hold files of several GB (a trial's dialog.jsonl).
+            with path.open("rb") as handle:
+                size = os.fstat(handle.fileno()).st_size
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", media_type)
+                self.send_header("Content-Length", str(size))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                if sandbox:
+                    self.send_header("Content-Security-Policy", "sandbox allow-scripts")
+                self.end_headers()
+                shutil.copyfileobj(handle, self.wfile, 1 << 20)
 
         def _json(self, payload: object, *, status: HTTPStatus = HTTPStatus.OK) -> None:
             content = json.dumps(payload, ensure_ascii=False).encode("utf-8")

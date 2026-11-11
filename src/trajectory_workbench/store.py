@@ -539,6 +539,20 @@ class Store:
             rows = self._db.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
+    def collection_contents(self, collection: str) -> dict[str, int]:
+        """What `remove_collection` would delete, counted without deleting anything."""
+        scope = "trajectory_id IN (SELECT id FROM trajectories WHERE collection = ?)"
+        with self._locked():
+            count = lambda sql: self._db.execute(sql, (collection,)).fetchone()[0] or 0  # noqa: E731
+            return {
+                "trajectories": count("SELECT COUNT(*) FROM trajectories WHERE collection = ?"),
+                "reviews": count(f"SELECT COUNT(*) FROM reviews WHERE {scope}"),
+                "annotations": count(f"SELECT COUNT(*) FROM annotations WHERE {scope}"),
+                "jev_results": count(f"SELECT COUNT(*) FROM jev_results WHERE {scope}"),
+                "jev_input_tokens": count(f"SELECT SUM(input_tokens) FROM jev_results WHERE {scope}"),
+                "sources": count("SELECT COUNT(*) FROM sources WHERE collection = ?"),
+            }
+
     def remove_collection(self, collection: str) -> dict[str, int]:
         """Delete a collection from the index: its trajectory rows, sources, text index,
         Jev results, annotations and reviews. Source files are never touched."""
@@ -563,9 +577,13 @@ class Store:
             self._db.commit()
         return counts
 
-    def list_sources(self) -> list[dict[str, Any]]:
+    def list_sources(self, check_exists: bool = True) -> list[dict[str, Any]]:
+        """Registered sources. `available` costs one stat per source; a caller that only
+        needs to know what is registered passes check_exists=False."""
         with self._locked():
             rows = self._db.execute("SELECT * FROM sources ORDER BY registered_at").fetchall()
+        if not check_exists:
+            return [dict(row) for row in rows]
         return [
             {**dict(row), "available": Path(row["path"]).exists()} for row in rows
         ]
@@ -656,8 +674,11 @@ class Store:
         elif reviewed is False:
             clauses.append("r.reviewed_at IS NULL")
         if search:
-            clauses.append("(t.title LIKE ? OR t.instruction LIKE ? OR t.run_id LIKE ? OR t.task_id LIKE ?)")
-            params.extend([f"%{search}%"] * 4)
+            # The text is matched literally: % and _ in it are not wildcards.
+            literal = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            like = "LIKE ? ESCAPE '\\'"
+            clauses.append(f"(t.title {like} OR t.instruction {like} OR t.run_id {like} OR t.task_id {like})")
+            params.extend([f"%{literal}%"] * 4)
         if task_key:
             clauses.append("t.task_key = ?")
             params.append(task_key)
@@ -740,7 +761,7 @@ class Store:
         return total, items
 
     def all_trajectories(
-        self, collection: str | None = None, *, heads_only: bool = False, columns: Iterable[str] | None = None
+        self, collection: str | None = None, *, columns: Iterable[str] | None = None
     ) -> list[dict[str, Any]]:
         """Every trajectory row (optionally only some columns, which is much faster on
         large collections than decoding the signals JSON of each row)."""
@@ -752,15 +773,13 @@ class Store:
         if collection:
             clauses.append("collection = ?")
             params.append(collection)
-        if heads_only:
-            clauses.append("episode_head = 1")
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         with self._locked():
             rows = self._db.execute(sql, params).fetchall()
         return [self._decode(row) for row in rows]
 
-    def collections(self) -> list[dict[str, Any]]:
+    def collections(self, reviewer: str | None = None) -> list[dict[str, Any]]:
         with self._locked():
             rows = self._db.execute(
                 # Outcome counts are per episode (head rows); `total` counts every trajectory.
@@ -773,10 +792,13 @@ class Store:
                 "FROM trajectories GROUP BY collection ORDER BY MAX(imported_at) DESC"
             ).fetchall()
             # Reviewed episodes (a review of any member counts once), matching `episodes`.
+            # With a reviewer, only that person's reviews: the list, the read filter and the
+            # queue count the same way.
             reviewed = dict(
                 self._db.execute(
                     "SELECT t.collection, COUNT(DISTINCT COALESCE(t.group_key, t.id)) FROM reviews r JOIN trajectories t "
-                    "ON t.id = r.trajectory_id GROUP BY t.collection"
+                    "ON t.id = r.trajectory_id " + ("WHERE r.reviewer = ? " if reviewer else "") + "GROUP BY t.collection",
+                    (reviewer,) if reviewer else (),
                 ).fetchall()
             )
         return [{**dict(row), "reviewed": reviewed.get(row["collection"], 0)} for row in rows]

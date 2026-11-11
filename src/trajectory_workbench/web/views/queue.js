@@ -31,7 +31,18 @@ export async function renderQueue(root, ctx, params, still) {
   const queue = await api.queue({ collection: ctx.collection, date, size });
   if (!still()) return;
   const progress = queueProgress(queue);
-  ctx.queueNav = { ids: queue.items.map((item) => item.trajectory.id) };
+  // The server lists the buckets in a fixed order (pass/fail pairs, suspicious passes,
+  // failures, ...), so in blind mode that order alone would give the grade away: shuffle it,
+  // the same way every time for the same day.
+  const day = queue.date || date;
+  const items = ctx.blind
+    ? queue.items
+        .map((item) => ({ item, key: stableHash(item.trajectory.id + "|" + day) }))
+        .sort((a, b) => a.key - b.key || (a.item.trajectory.id < b.item.trajectory.id ? -1 : 1))
+        .map(({ item }) => item)
+    : queue.items;
+  const doneIds = new Set(items.filter((item) => item.done).map((item) => item.trajectory.id));
+  ctx.queueNav = { ids: items.map((item) => item.trajectory.id) };
 
   const dateInput = h("input", { type: "date", value: date, onchange: (event) => ctx.navigate("#/queue?date=" + event.target.value + "&size=" + size) });
   const sizeSelect = h(
@@ -66,10 +77,10 @@ export async function renderQueue(root, ctx, params, still) {
       h("li", {}, t("写一个能用实验验证的假设，并选修复手段。"))
     )
   );
-  // Bucket names reveal the grader result ("suspicious pass"), so blind mode shows one
-  // flat list and each reason only after that trajectory has been read.
+  // Bucket names and reasons reveal the grader result ("suspicious pass", "the failing
+  // sample of a pair"), so blind mode shows one flat list and never shows them.
   const groups = {};
-  queue.items.forEach((item) => (groups[ctx.blind ? "blind" : item.bucket] ||= []).push(item));
+  items.forEach((item) => (groups[ctx.blind ? "blind" : item.bucket] ||= []).push(item));
   const sections = Object.entries(groups).map(([bucket, items]) =>
     h(
       "section",
@@ -81,18 +92,31 @@ export async function renderQueue(root, ctx, params, still) {
           "div",
           {},
           h("h2", {}, t("{name}（{n}）", { name: bucket === "blind" ? t("今日轨迹") : tb(items[0].bucket_label), n: items.length })),
-          h("p", {}, bucket === "blind" ? t("盲判模式：抽样原因和评分在读完后显示") : BUCKET_HELP[bucket] || "")
+          h("p", {}, bucket === "blind" ? t("盲判模式：评分在读完后显示，不显示抽样原因；对照读在两条都读完后出现") : BUCKET_HELP[bucket] || "")
         )
       ),
-      items.map((item) => queueRow(item, ctx))
+      items.map((item) => queueRow(item, ctx, doneIds))
     )
   );
   clear(root, header, guide, sections.length ? sections : empty(t("这个集合里没有可抽的轨迹（或都读过了）")));
 }
 
-function queueRow(item, ctx) {
+/** FNV-1a: a fixed pseudo-random order that does not depend on the server's bucket order. */
+function stableHash(text) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+function queueRow(item, ctx, doneIds) {
   const row = item.trajectory;
   const status = ctx.blind && !item.done ? null : row.outcome_status;
+  // Being paired at all says "one passed, one failed", so blind mode offers the pair only once
+  // both of its trajectories have been read.
+  const showPair = item.pair_with && (!ctx.blind || (item.done && doneIds.has(item.pair_with)));
   return h(
     "div",
     { class: "queue-row" + (item.done ? " done" : "") },
@@ -103,8 +127,8 @@ function queueRow(item, ctx) {
       h("strong", {}, row.title || row.run_id),
       h("small", {}, [row.task_id, row.model, t("{n} 步", { n: row.steps }), status ? OUTCOME_LABELS[status] : null].filter(Boolean).join(" · "))
     ),
-    h("span", { class: "queue-reason" }, ctx.blind ? (item.done ? t("{bucket}：{reason}", { bucket: tb(item.bucket_label), reason: tb(item.reason) }) : t("读完后显示抽样原因")) : tb(item.reason)),
-    item.pair_with ? h("a", { class: "link-button", href: "#/pair/" + encodeURIComponent(row.id) + "/" + encodeURIComponent(item.pair_with) }, t("对照读")) : h("span"),
+    h("span", { class: "queue-reason" }, ctx.blind ? "" : tb(item.reason)),
+    showPair ? h("a", { class: "link-button", href: "#/pair/" + encodeURIComponent(row.id) + "/" + encodeURIComponent(item.pair_with) }, t("对照读")) : h("span"),
     item.done ? chip(t("已读"), "ok") : chip(t("未读"), "muted")
   );
 }

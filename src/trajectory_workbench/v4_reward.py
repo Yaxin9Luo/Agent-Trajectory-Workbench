@@ -74,7 +74,7 @@ def read_deck(work_dir: Path, runs_root: str) -> dict[str, Any]:
             critique = judged.get("critique") if isinstance(judged, dict) else None
             if isinstance(critique, str) and critique.strip():
                 row["critique"] = critique
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):  # ValueError: bad JSON, or bytes that are not UTF-8
             pass
     return row
 

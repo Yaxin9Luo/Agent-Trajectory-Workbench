@@ -37,8 +37,9 @@ export function createAnnotations(reader, trajectoryId, onChange) {
   function decorate(slot, step) {
     const nodes = items
       .filter((item) => item.step === step)
-      .map((note) =>
-        h(
+      .map((note) => {
+        const status = h("span", { class: "save-status" });
+        return h(
           "div",
           { class: "step-note" },
           h("span", { class: "step-note-text" }, note.label ? h("b", {}, labelText(note.label) + " · ") : null, note.note),
@@ -52,15 +53,20 @@ export function createAnnotations(reader, trajectoryId, onChange) {
                 type: "button",
                 class: "link-button",
                 onclick: async () => {
-                  await api.deleteAnnotation(trajectoryId, note.id);
-                  await load();
+                  try {
+                    await api.deleteAnnotation(trajectoryId, note.id);
+                    await load();
+                  } catch (error) {
+                    status.textContent = error.message;
+                  }
                 },
               },
               t("删")
-            )
+            ),
+            status
           )
-        )
-      );
+        );
+      });
     // Replace the notes but leave an open editor where it is: moving it would drop the
     // keyboard focus of whoever is typing in it.
     const editor = slot.querySelector("form.step-note-editor");
@@ -149,5 +155,5 @@ export function createAnnotations(reader, trajectoryId, onChange) {
     );
   }
 
-  return { load, steps, decorate, edit, exportPanel, count: () => items.length };
+  return { load, steps, decorate, edit, exportPanel };
 }

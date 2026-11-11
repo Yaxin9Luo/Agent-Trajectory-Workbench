@@ -11,6 +11,7 @@ import {
   formatCount,
   formatDuration,
   outcomeTone,
+  editDiff,
   editView,
   foldText,
   lineDiff,
@@ -30,6 +31,11 @@ const TEXT_CLIP = 6000;
 const CHANGE_LABELS = { edit: t("改动"), write: t("写入"), patch: t("补丁") };
 // foldText says what it hid in "行" (lines) or "字" (characters).
 const UNIT_LABELS = { 行: t("行"), 字: t("字") };
+// Step-bar colours without Jev phases: the legend and the cell tooltips use the same names.
+const RAIL_LABELS = { user: t("用户"), assistant: t("模型回复"), tool: t("工具调用"), system: t("系统"), result: t("结果"), "layer-hook": "Hook" };
+// Folded and clipped blocks, with their full text and how to open them (a search link opens the
+// block that holds the searched term).
+const expandable = new WeakMap();
 
 export async function renderReader(root, trajectoryId, ctx, still, params = new URLSearchParams()) {
   clear(root, empty(t("读取轨迹…")));
@@ -113,6 +119,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   analysisPane.append(jevSlot);
   side.append(tabs, analysisPane, ledgerPane, reviewPane);
 
+  let shownTurning = state.review?.turning_step ?? null;
   const api_ = {
     state,
     ctx,
@@ -131,13 +138,22 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     },
     onJev: (jev) => {
       state.jev = jev;
+      jevByStep = indexJev(jev);
       renderSignals();
       renderRail();
       renderTranscriptMarks();
+      // The turning-point candidates come from the Jev summary.
+      review.refresh();
     },
     onReview: (reviewValue) => {
+      // Autosaves of typed text arrive here too: only a new turning point changes the step bar
+      // and the step marks. (The review panel edits the saved object in place, so compare with
+      // what was last drawn, not with state.review.)
+      const turning = reviewValue?.turning_step ?? null;
       state.review = reviewValue;
       renderTabs();
+      if (turning === shownTurning) return;
+      shownTurning = turning;
       renderRail();
       renderTranscriptMarks();
     },
@@ -180,7 +196,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       );
     }
     // The v4 reward is a score too: in blind mode it waits for the reader's own verdict.
-    clear(v4Slot, run.v4_reward ? (state.revealed ? renderV4Reward(run.v4_reward) : h("section", { class: "panel v4-reward hidden-verdict" }, h("strong", {}, t("v4 reward 已隐藏")), h("span", { class: "muted" }, " " + t("先给出你的判断")))) : null);
+    clear(v4Slot, run.v4_reward ? (state.revealed ? renderV4Reward(run.v4_reward) : h("section", { class: "panel v4-reward hidden-verdict" }, h("strong", {}, t("v4 奖励已隐藏：先给出你的判断")))) : null);
     clear(
       header,
       h(
@@ -215,7 +231,8 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       [t("工具报错"), metrics.tool_errors],
       [t("时长"), metrics.has_clock || metrics.wall_ms ? formatDuration(metrics.wall_ms ?? metrics.max_offset_ms) : "—"],
       ["tokens", formatCount(metrics.total_tokens)],
-      [t("费用"), metrics.total_cost_usd != null ? "$" + Number(metrics.total_cost_usd).toFixed(2) : "—"],
+      // Sources that do not record cost store 0: show it as unknown, like null.
+      [t("费用"), Number(metrics.total_cost_usd) ? "$" + Number(metrics.total_cost_usd).toFixed(2) : "—"],
     ];
     const body = h("div", { class: "task-text" }, instruction.length > 1200 ? instruction.slice(0, 1200) + "…" : instruction);
     const toggle = instruction.length > 1200
@@ -340,7 +357,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
         h("button", {
           type: "button",
           class: ["rail-cell", "k-" + cell.kind, cell.error && "error", cell.flagged && "flagged", cell.turning && "turning", noted.has(cell.step) && "noted"].filter(Boolean).join(" "),
-          title: "#" + cell.step + " · " + (PHASE_LABELS[cell.kind] || cell.kind) + (cell.error ? " · " + t("工具报错") : ""),
+          title: "#" + cell.step + " · " + railLabel(cell.kind) + (cell.error ? " · " + t("工具报错") : ""),
           onclick: () => jumpTo(cell.step),
         })
       )
@@ -348,7 +365,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     const hasPhase = Boolean(state.jev?.steps?.steps?.length);
     const legend = hasPhase
       ? Object.entries(PHASE_LABELS).map(([key, label]) => h("span", { class: "legend k-" + key }, label))
-      : [["user", t("用户")], ["assistant", t("模型回复")], ["tool", t("工具调用")], ["system", t("系统")], ["result", t("结果")], ["layer-hook", "Hook"]].map(([key, label]) => h("span", { class: "legend k-" + key }, label));
+      : Object.entries(RAIL_LABELS).map(([key, label]) => h("span", { class: "legend k-" + key }, label));
     clear(
       railPanel.querySelector(".rail-legend"),
       h("strong", {}, hasPhase ? t("步骤条 · Jev 阶段") : t("步骤条")),
@@ -454,8 +471,9 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     const token = ++messageToken;
     if (mode === "replace") clear(transcript, empty(t("读取消息…")));
     const onlyHighlighted = state.onlyHighlighted && state.highlight;
+    // Highlighted steps page like the full list (the server returns at most 500 per request).
     const params = onlyHighlighted
-      ? { steps: [...state.highlight.steps].join(","), limit: 500 }
+      ? { steps: [...state.highlight.steps].join(","), offset, limit }
       : { roles: [...state.roles].join(","), search: state.search, offset, limit };
     const payload = await api.messages(trajectoryId, params);
     if (token !== messageToken || !still()) return;
@@ -478,14 +496,14 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     }
     clear(
       earlier,
-      !onlyHighlighted && windowStart > 0
+      windowStart > 0
         ? h("button", { type: "button", onclick: () => loadMessages(Math.max(0, windowStart - PAGE), "prepend", Math.min(PAGE, windowStart)) }, t("加载前面的（还有 {count} 条）", { count: windowStart }))
         : null
     );
     clear(
       more,
-      !onlyHighlighted && windowEnd < payload.total
-        ? h("button", { type: "button", onclick: () => loadMessages(windowEnd, "append") }, t("继续加载（{loaded} / {total}）", { loaded: windowEnd, total: payload.total }))
+      windowEnd < payload.total
+        ? h("button", { type: "button", onclick: () => loadMessages(windowEnd, "append") }, t("继续加载（到第 {end} 条，共 {total} 条）", { end: windowEnd, total: payload.total }))
         : h("span", { class: "muted" }, t("{count} 条消息", { count: payload.total }))
     );
     renderTranscriptMarks();
@@ -503,16 +521,29 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     );
   }
 
-  function stepFlags(step) {
-    const labels = [];
+  // Per-step lookups for the step marks, built once instead of searched for every step.
+  const indexJev = (jev) => new Map((jev?.steps?.steps || []).map((item) => [item.step, item]));
+  let jevByStep = indexJev(state.jev);
+  const signalsByStep = new Map();
+  {
     const suppressed = new Set(run.signals?.suppressed || []);
-    (run.signals?.flags || []).forEach((flag) => { if (!suppressed.has(flag.key) && flag.steps.includes(step)) labels.push([tb(flag.label), flag.severity]); });
-    const record = (state.jev?.steps?.steps || []).find((item) => item.step === step);
-    const thresholds = ctx.taxonomy.jev_thresholds || {};
-    const unvalidated = new Set(ctx.taxonomy.jev_unvalidated || []);
+    (run.signals?.flags || []).forEach((flag) => {
+      if (suppressed.has(flag.key)) return;
+      new Set(flag.steps).forEach((step) => {
+        if (!signalsByStep.has(step)) signalsByStep.set(step, []);
+        signalsByStep.get(step).push([tb(flag.label), flag.severity]);
+      });
+    });
+  }
+  const jevThresholds = ctx.taxonomy.jev_thresholds || {};
+  const jevUnvalidated = new Set(ctx.taxonomy.jev_unvalidated || []);
+
+  function stepFlags(step) {
+    const labels = [...(signalsByStep.get(step) || [])];
+    const record = jevByStep.get(step);
     Object.entries(record?.p || {}).forEach(([key, p]) => {
-      if (key === "notices_problem" || unvalidated.has(key)) return;
-      if (p >= (thresholds[key] ?? 0.5)) labels.push(["Jev · " + jevLabel(key) + " " + Math.round(p * 100) + "%", "jev"]);
+      if (key === "notices_problem" || jevUnvalidated.has(key)) return;
+      if (p >= (jevThresholds[key] ?? 0.5)) labels.push(["Jev · " + jevLabel(key) + " " + Math.round(p * 100) + "%", "jev"]);
     });
     if (record?.work && record.work !== "polish") labels.push([t("改动：{work}", { work: WORK_LABELS[record.work] || record.work }), "muted"]);
     return { labels, phase: record?.phase, problem: (record?.p?.notices_problem || 0) >= 0.5 };
@@ -644,9 +675,12 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     const fold = foldText(text);
     if (!fold.folded) return h("pre", {}, text);
     const pre = h("pre", {}, fold.head);
-    const button = h("button", { type: "button", class: "fold-button", onclick: () => { pre.textContent = text; button.remove(); tailPre.remove(); } }, t("… 展开中间 {count} {unit} …", { count: formatCount(fold.hidden), unit: UNIT_LABELS[fold.unit] || fold.unit }));
+    const expand = () => { pre.textContent = text; button.remove(); tailPre.remove(); expandable.delete(block); };
+    const button = h("button", { type: "button", class: "fold-button", onclick: expand }, t("… 展开中间 {count} {unit} …", { count: formatCount(fold.hidden), unit: UNIT_LABELS[fold.unit] || fold.unit }));
     const tailPre = h("pre", {}, fold.tail);
-    return h("div", { class: "folded-output" }, pre, button, tailPre);
+    const block = h("div", { class: "folded-output" }, pre, button, tailPre);
+    expandable.set(block, { text, expand });
+    return block;
   }
 
   function diffLines(lines) {
@@ -666,7 +700,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       ));
     }
     return h("div", { class: "change-hunks" }, change.hunks.map((hunk, index) => {
-      const diff = lineDiff(hunk.before, hunk.after);
+      const diff = editDiff(hunk.before, hunk.after);
       const label = change.hunks.length > 1 ? h("div", { class: "muted" }, t("第 {n} 处 / 共 {total} 处", { n: index + 1, total: change.hunks.length })) : null;
       if (!diff) return h("div", {}, label, h("div", { class: "muted" }, t("改动太长，不做逐行对比：先是原文，后是新文")), folded(hunk.before), folded(hunk.after));
       return h("div", {}, label, diffLines(diff.map((line) => ({ op: line.op === "=" ? " " : line.op, text: line.text }))));
@@ -686,7 +720,12 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
           try {
             const page = await api.messages(trajectoryId, { steps: String(tool.repeat_of.step), limit: 5 });
             const earlier = page.items.flatMap((message) => message.tools).find((item) => item.id === tool.repeat_of.id);
-            const diff = lineDiff(earlier?.result?.text || "", tool.result?.text || "");
+            // Outputs are compared line by line unless a line is so long that the diff would
+            // print it whole (minified JSON, base64), which is what folding exists to avoid.
+            const before = earlier?.result?.text || "";
+            const after = tool.result?.text || "";
+            const wide = (text) => text.length > 200000 || text.split("\n").some((line) => line.length > 2000);
+            const diff = wide(before) || wide(after) ? null : lineDiff(before, after);
             if (!diff) {
               clear(slot, h("span", { class: "muted" }, t("输出太长，不做逐行对比")));
             } else if (diff.every((line) => line.op === "=")) {
@@ -718,8 +757,11 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       return element;
     }
     element.textContent = text.slice(0, TEXT_CLIP) + "\n…";
-    const button = h("button", { type: "button", class: "link-button", onclick: () => { element.textContent = text; button.remove(); } }, t("展开剩余 {count} 字", { count: formatCount(text.length - TEXT_CLIP) }));
-    return h("div", {}, element, button);
+    const expand = () => { element.textContent = text; button.remove(); expandable.delete(block); };
+    const button = h("button", { type: "button", class: "link-button", onclick: expand }, t("展开剩余 {count} 字", { count: formatCount(text.length - TEXT_CLIP) }));
+    const block = h("div", {}, element, button);
+    expandable.set(block, { text, expand });
+    return block;
   }
 
   async function jumpTo(step, { smooth = true } = {}) {
@@ -869,6 +911,10 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   renderSignals();
   renderRail();
   renderTracks();
+  const initialStep = Number(params.get("step"));
+  // Offsets count every step only when no role is filtered out (set before the toolbar is drawn,
+  // so the role buttons show it).
+  if (initialStep > 0) state.roles = new Set(["user", "assistant", "tool", "system", "result"]);
   renderTranscriptTools();
   const review = renderReviewPanel(reviewSlot, api_);
   const jevPanel = renderJevPanel(jevSlot, api_);
@@ -878,9 +924,6 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   renderTabs();
   notes.load().catch(() => null);
   transcript.classList.toggle("compact", Boolean(state.compact));
-  const initialStep = Number(params.get("step"));
-  // Offsets count every step only when no role is filtered out.
-  if (initialStep > 0) state.roles = new Set(["user", "assistant", "tool", "system", "result"]);
   await loadMessages(initialStep > 0 ? Math.max(0, initialStep - 1 - 20) : 0);
   if (initialStep > 0 && still()) {
     await jumpTo(initialStep, { smooth: false });
@@ -893,6 +936,14 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
 /** Wrap occurrences of the terms inside an element's text in <mark> (text nodes only). */
 function markTerms(root, terms) {
   const wanted = terms.map((term) => term.toLowerCase());
+  // A term in the hidden middle of a folded output (or after a clip) is not in the page yet:
+  // open those blocks first.
+  root.querySelectorAll("div").forEach((block) => {
+    const entry = expandable.get(block);
+    if (!entry) return;
+    const lower = entry.text.toLowerCase();
+    if (wanted.some((term) => lower.includes(term))) entry.expand();
+  });
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
@@ -971,6 +1022,10 @@ function renderEpisodeStrip(episode, currentId, ctx) {
     h("div", { class: "episode-lanes" }, threads),
     subagents.length ? h("div", { class: "episode-subs" }, subagents) : null
   );
+}
+
+function railLabel(kind) {
+  return PHASE_LABELS[kind] || RAIL_LABELS[kind] || (kind.startsWith("layer-") ? LAYER_LABELS[kind.slice("layer-".length)] : null) || kind;
 }
 
 function jevLabel(key) {

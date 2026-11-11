@@ -149,8 +149,9 @@ pre { margin: 6px 0 0; max-height: 420px; overflow: auto; padding: 9px 10px; bor
 /* ---- library ---------------------------------------------------------------- */
 .filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; }
 .filters input[type=search] { flex: 1 1 240px; }
-.trajectory-table { overflow: hidden; }
-.trajectory-table .row { display: grid; grid-template-columns: 36px minmax(220px, 2.4fr) minmax(120px, 1fr) 52px 56px minmax(140px, 1.3fr) minmax(110px, 1fr); gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); color: inherit; text-decoration: none; }
+/* The row needs ~836px; between the narrow layout (820px) and that, scroll instead of cutting columns off. */
+.trajectory-table { overflow-x: auto; }
+.trajectory-table .row { display: grid; grid-template-columns: 36px minmax(220px, 2.4fr) minmax(120px, 1fr) 52px 56px minmax(140px, 1.3fr) minmax(110px, 1fr); gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); color: inherit; text-decoration: none; min-width: min-content; }
 .trajectory-table .row:hover { background: var(--paper-2); }
 .trajectory-table .row.head { color: var(--muted); font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; background: var(--paper-2); }
 .cell-title, .cell-meta { min-width: 0; display: grid; gap: 2px; }
@@ -165,7 +166,7 @@ pre { margin: 6px 0 0; max-height: 420px; overflow: auto; padding: 9px 10px; bor
 .guide strong { color: var(--ink); }
 .guide ol { margin: 6px 0 0; padding-left: 20px; line-height: 1.7; }
 .queue-group { padding: 12px 14px; }
-.queue-row { display: grid; grid-template-columns: 12px minmax(200px, 1.4fr) minmax(200px, 2fr) 60px 50px; gap: 12px; align-items: center; padding: 9px 4px; border-top: 1px solid var(--line-soft); }
+.queue-row { display: grid; grid-template-columns: 12px minmax(200px, 1.4fr) minmax(200px, 2fr) minmax(60px, max-content) minmax(50px, max-content); gap: 12px; align-items: center; padding: 9px 4px; border-top: 1px solid var(--line-soft); }
 .queue-row.done { opacity: .6; }
 .queue-title { min-width: 0; display: grid; gap: 2px; color: inherit; text-decoration: none; }
 .queue-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }

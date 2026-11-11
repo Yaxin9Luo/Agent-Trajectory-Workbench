@@ -64,6 +64,8 @@ STOCK_SECTIONS: dict[str, set[str]] = {
         "text output (does not apply to tool calls)",
     },
 }
+# Phrases the stock system prompts contain (see `base_agent`).
+STOCK_PROMPT_MARKERS = ("You are Claude Code", "Claude Agent SDK", "You are Codex", "running in the Codex CLI")
 SKILL_TOOLS = {"skill", "use_skill", "load_skill"}
 # Subagent types a fresh Claude Code install ships with; any other `subagent_type` passed
 # to its Agent/Task tool was defined by the harness.
@@ -122,16 +124,25 @@ def _system_text(run: Any) -> str:
     message = next((m for m in run.messages if m["role"] == "system"), None)
     if message is not None and message.get("text"):
         return message["text"]
+    return _recorded_prompt(run)
+
+
+def _recorded_prompt(run: Any) -> str:
+    """The system prompt a harness recorded outside the messages (MoH's `model_prompt`)."""
     prompt = ((run.model_prompt or {}).get("system") or {}) if hasattr(run, "model_prompt") else {}
     return prompt.get("text") or "" if isinstance(prompt, dict) else ""
 
 
 def _sections(text: str) -> list[tuple[str, str]]:
-    """(level-1 heading, body) pairs; text before the first heading has heading ''."""
+    """(level-1 heading, body) pairs; text before the first heading has heading ''.
+    Lines inside ``` code blocks (shell comments) are never headings."""
     parts: list[tuple[str, str]] = []
     heading, lines = "", []
+    fenced = False
     for line in text.splitlines():
-        if line.startswith("# ") and not line.startswith("# #"):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        if not fenced and line.startswith("# ") and not line.startswith("# #"):
             parts.append((heading, "\n".join(lines)))
             heading, lines = line[2:].strip(), []
         else:
@@ -155,9 +166,22 @@ def added_instructions(run: Any, base: str | None) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     stock = STOCK_SECTIONS.get(base or "")
     system = next((m for m in run.messages if m["role"] == "system"), None)
+    # Claude Code 2.x sessions (which do not record the system prompt) and Codex rollouts
+    # can open with an instruction file (CLAUDE.md, AGENTS.md): that is not the prompt.
+    if system is not None and system.get("layer") == "instruction":
+        system = None
+        prompt = _recorded_prompt(run)
+    else:
+        prompt = _system_text(run)
+    sections = _sections(prompt)
+    # Only a prompt recognised as the stock one is left out of the search for instruction
+    # files below (it may name them without quoting one).
+    stock_prompt = system is not None and (
+        any(marker in prompt for marker in STOCK_PROMPT_MARKERS) or any(stock_section(base, h) for h, _ in sections)
+    )
     if stock:
         seen_stock = False
-        for heading, body in _sections(_system_text(run)):
+        for heading, body in sections:
             if not heading:
                 continue
             if heading.casefold() in stock:
@@ -168,7 +192,7 @@ def added_instructions(run: Any, base: str | None) -> list[dict[str, Any]]:
             topics += [line.strip() for line in body.splitlines() if re.fullmatch(r"[A-Z][A-Z0-9 &/-]{5,}", line.strip())]
             found.append({"name": heading, "topics": topics[:20], "text": body, "after_stock": seen_stock})
     for message in run.messages:
-        if message["role"] not in {"system", "user"} or message is system:
+        if message["role"] not in {"system", "user"} or (message is system and stock_prompt):
             continue
         text = message.get("text") or ""
         # Other injected developer text (Codex's <multi_agent_mode>, plugin lists) is stock.
@@ -223,7 +247,13 @@ def inventory(run: Any) -> dict[str, Any]:
                 item.setdefault(key, value)
         return item
 
-    names = [item["name"] for item in run.tool_catalog] + [t.get("raw_name") or t["name"] for t in run.tools]
+    names: list[str] = []
+    for item in run.tool_catalog:
+        # A catalog may show an MCP tool under a display name (MoH: "Slides Workbench");
+        # the MCP name stands for it.
+        mcp_raw = [raw for raw in item.get("raw_names") or [] if raw.startswith("mcp__")]
+        names.extend(mcp_raw or [item["name"]])
+    names += [t.get("raw_name") or t["name"] for t in run.tools]
     # Some sources also list an MCP tool under its short name (`js` for `mcp__repl__js`).
     mcp_short = {raw.split("__")[-1] for raw in names if raw.startswith("mcp__")}
     for raw in names:
@@ -417,8 +447,8 @@ def trace(run: Any, found: dict[str, Any] | None = None, *, conventions: bool = 
                 skill = _skill_name(tool.get("input"))
                 if skill in skills:
                     note(skills[skill], "calls", step)
-            elif _custom_subagent(tool, found["base"]) in subagents:
-                note(subagents[_custom_subagent(tool, found["base"])], "calls", step)
+            elif (kind := _custom_subagent(tool, found["base"])) in subagents:
+                note(subagents[kind], "calls", step)
             arguments = _json_text(tool.get("input"))
             if file_terms:
                 for component in _found(arguments, file_terms):

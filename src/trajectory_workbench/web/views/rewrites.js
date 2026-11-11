@@ -10,7 +10,7 @@ import { renderOverview, renderQueue } from "./rewrite-batch.js";
  * (any harness, any pipeline); pipeline annotations, when a batch has them, explain changes.
  */
 
-const KIND_LABELS = { mcp: "MCP", tool: t("工具"), skill: "Skill", subagent: t("子代理类型"), hook: "Hook", instruction: t("指令段落"), file: t("harness 文件") };
+const KIND_LABELS = { mcp: "MCP", tool: t("工具"), skill: "Skill", subagent: t("子代理类型"), hook: "Hook", instruction: t("指令"), file: t("harness 文件") };
 const USE_LABELS = { calls: t("调用"), files: t("参数里"), mentions: t("提到"), outputs: t("用到其产出") };
 const GATE = { include: [t("可进"), "ok"], review: [t("待看"), "warn"], exclude: [t("不进"), "bad"] };
 const FIELD_LABELS = { thinking: t("思考"), text: t("正文") };
@@ -63,11 +63,11 @@ async function renderBatches(root, ctx, still) {
   clear(
     root,
     h("header", { class: "page-head" }, h("div", {}, h("span", { class: "eyebrow" }, t("改写审阅")), h("h1", {}, t("改写批次")))),
-    h("div", { class: "rr-batches-grid" }, h("section", { class: "panel explore-card" }, list), createForm(ctx))
+    h("div", { class: "rr-batches-grid" }, h("section", { class: "panel explore-card" }, list), createForm(ctx, still))
   );
 }
 
-function createForm(ctx) {
+function createForm(ctx, still) {
   const status = h("p", { class: "hint", role: "status" });
   const names = ctx.collections.map((item) => item.collection);
   const select = (name, label) => h("select", { name, "aria-label": label }, h("option", { value: "" }, label), names.map((item) => h("option", { value: item }, item)));
@@ -101,7 +101,8 @@ function createForm(ctx) {
       });
       if (finished.status === "failed") throw new Error(finished.error);
       if (fields.rewritten_path) await ctx.refreshCollections();
-      ctx.navigate("#/rewrites/" + encodeURIComponent(finished.result.batch.id));
+      // The job can take minutes: open the new batch only if the user is still on this page.
+      if (still()) ctx.navigate("#/rewrites/" + encodeURIComponent(finished.result.batch.id));
     } catch (error) {
       status.textContent = error.message;
     } finally {
@@ -689,7 +690,8 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
       markChanges();
       renderMap();
       renderHead();
-      if (advance && fields.kind === "change") {
+      // Only from the change that was saved: the user may have moved on while it was saving.
+      if (advance && fields.kind === "change" && state.selected === fields.key) {
         const next = order.slice(order.indexOf(fields.key) + 1).find((id) => !state.verdicts[id]);
         if (next) return select(next);
       }
@@ -702,7 +704,9 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
 
   function judge(change, verdict, errorType = null) {
     const previous = state.verdicts[change.id];
-    const note = inspector.querySelector("textarea[name=note]")?.value || previous?.note || "";
+    const textarea = inspector.querySelector("textarea[name=note]");
+    // An emptied note is a cleared note, not a reason to keep the old one.
+    const note = textarea ? textarea.value : previous?.note || "";
     if (verdict === "error" && !errorType) {
       state.awaitingType = true;
       renderInspector();

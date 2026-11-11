@@ -3,7 +3,7 @@ export default {
   "保存中…": "Saving…",
   "已保存 {time}": "Saved {time}",
   "保存失败：{error}": "Save failed: {error}",
-  "阅读记录": "Review record",
+  "阅读记录": "Review",
   "读出来的东西要能变成指标或评分器修补": "What you find should turn into a metric or a grader fix",
   "① 盲判：不看评分，你觉得这条评分器会怎么判？": "1. Blind guess: without seeing the grade, how will the grader judge this one?",
   "通过": "Pass",

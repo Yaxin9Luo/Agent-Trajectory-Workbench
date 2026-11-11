@@ -51,6 +51,12 @@ def _prose(text: str) -> str:
     return "\n".join("\\" + line if line.lstrip().startswith(("#", "```", "~~~")) else line for line in text.splitlines())
 
 
+def _line(text: Any) -> str:
+    """Text that comes from the transcript, the grader or a person, put inside one line
+    of the document: escaped like prose and kept on that line."""
+    return " ".join(_prose(str(text or "")).split())
+
+
 def _quote(text: str) -> str:
     return "\n".join("> " + line if line else ">" for line in _prose(text).splitlines())
 
@@ -69,7 +75,7 @@ def markdown_excerpt(
         notes.setdefault(item["step"], []).append(item)
     wanted = set(steps)
     outcome = run.outcome or {}
-    lines = [f"# {row.get('title') or run.title}", ""]
+    lines = [f"# {_line(row.get('title') or run.title)}", ""]
     facts = [
         f"collection `{row.get('collection')}`",
         f"`{run.adapter_id}`",
@@ -77,7 +83,7 @@ def markdown_excerpt(
         f"{len(run.messages)} steps",
     ]
     if not hide_outcome:
-        facts.append(f"grader **{outcome.get('status', 'unknown')}**" + (f" ({outcome['reason']})" if outcome.get("reason") else ""))
+        facts.append(f"grader **{outcome.get('status', 'unknown')}**" + (f" ({_line(outcome['reason'])})" if outcome.get("reason") else ""))
     lines += [" · ".join(facts), "", f"Source: `{run.source_path}`" + (f" # {run.run_id}" if run.run_id else ""), ""]
     instruction = (run.task or {}).get("instruction") or row.get("instruction")
     if instruction:
@@ -92,9 +98,9 @@ def markdown_excerpt(
         if review.get("labels"):
             lines.append("- Labels: " + ", ".join(f"`{label}`" for label in review["labels"]))
         if review.get("turning_step"):
-            lines.append(f"- Turning point: step {review['turning_step']}" + (f" — {review['turning_note']}" if review.get("turning_note") else ""))
+            lines.append(f"- Turning point: step {review['turning_step']}" + (f" — {_line(review['turning_note'])}" if review.get("turning_note") else ""))
         if review.get("hypothesis"):
-            lines.append(f"- Hypothesis: {review['hypothesis']}")
+            lines.append(f"- Hypothesis: {_line(review['hypothesis'])}")
         if review.get("intervention"):
             lines.append(f"- Intervention: `{review['intervention']}`")
         lines.append("")

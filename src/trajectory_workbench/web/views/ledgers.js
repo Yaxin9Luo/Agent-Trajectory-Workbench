@@ -16,21 +16,33 @@ export function renderLedgerPanel(slot, reader, episode) {
   const trajectoryId = reader.state.run.id;
   const status = h("span", { class: "save-status" });
   let loaded = false;
+  // A Jev run is billed: one request at a time, and the button that starts one stays disabled
+  // until it settles.
+  let pending = null;
+  let jevButton = null;
 
-  async function load(runJev = false) {
-    status.textContent = runJev ? t("Jev 判断中…") : t("读取中…");
-    try {
-      const ledgers = runJev ? await api.runLedgers(trajectoryId, true) : await api.ledgers(trajectoryId);
-      status.textContent = "";
-      render(ledgers);
-    } catch (error) {
-      status.textContent = error.message;
-      if (!slot.contains(status)) {
-        // First load: the status line is not on the page yet. Show the error and allow a retry.
-        clear(slot, empty(t("读取失败：{message}", { message: error.message })));
-        loaded = false;
+  function load(runJev = false) {
+    if (pending) return pending;
+    if (jevButton) jevButton.disabled = true;
+    pending = (async () => {
+      status.textContent = runJev ? t("Jev 判断中…") : t("读取中…");
+      try {
+        const ledgers = runJev ? await api.runLedgers(trajectoryId, true) : await api.ledgers(trajectoryId);
+        status.textContent = "";
+        render(ledgers);
+      } catch (error) {
+        status.textContent = error.message;
+        if (!slot.contains(status)) {
+          // First load: the status line is not on the page yet. Show the error and allow a retry.
+          clear(slot, empty(t("读取失败：{message}", { message: error.message })));
+          loaded = false;
+        }
       }
-    }
+    })().finally(() => {
+      pending = null;
+      if (jevButton) jevButton.disabled = false;
+    });
+    return pending;
   }
 
   const stepLink = (step) => h("button", { type: "button", class: "step-link", onclick: () => reader.jump(step) }, "#" + step);
@@ -41,13 +53,19 @@ export function renderLedgerPanel(slot, reader, episode) {
 
   function render(ledgers) {
     const parts = [];
+    // A partly failed Jev run: the server counts the requests that got no answer.
+    const failed = ledgers.incomplete || 0;
+    jevButton = ctx.jevAvailable
+      ? h("button", { type: "button", class: ledgers.jev ? "link-button" : "primary", disabled: Boolean(pending), onclick: () => load(true) }, ledgers.jev ? t("重新判断") : t("用 Jev 分析台账"))
+      : null;
     const head = h(
       "div",
       { class: "ledger-head" },
       ledgers.jev
         ? h("span", { class: "muted" }, t("已用 Jev 判断 · {tokens} tokens", { tokens: formatCount(ledgers.input_tokens) }))
         : h("span", { class: "muted" }, t("下面只有代码抽取的条目；需求筛选、处理步骤、压缩保留、委派采纳、Hook 响应需要 Jev")),
-      ctx.jevAvailable ? h("button", { type: "button", class: ledgers.jev ? "link-button" : "primary", onclick: () => load(true) }, ledgers.jev ? t("重新判断") : t("用 Jev 分析台账")) : null,
+      failed > 0 ? chip(t("{n} 个请求失败", { n: failed }), "bad") : null,
+      jevButton,
       status
     );
     parts.push(head);
@@ -67,6 +85,10 @@ export function renderLedgerPanel(slot, reader, episode) {
               { class: "ledger-list" },
               requirements.map((item, index) => {
                 const lost = compactions.map((c, k) => (c.dropped || []).includes(index) ? k + 1 : null).filter(Boolean);
+                // No step can mean "Jev answered: nothing handles it" or "the request got no answer".
+                // p_step is 0 only when no coverage answer came back; in a partly failed run the
+                // missing answer may be the one that held the step, so no negative finding there.
+                const unjudged = !item.step && (!item.p_step || failed > 0);
                 return h(
                   "div",
                   { class: "ledger-row" },
@@ -74,7 +96,7 @@ export function renderLedgerPanel(slot, reader, episode) {
                   h(
                     "div",
                     { class: "ledger-meta" },
-                    !ledgers.jev ? null : item.step ? h("span", {}, t("处理于 "), stepLink(item.step), h("small", {}, " " + percent(item.p_step))) : chip(t("没找到处理步骤"), "warn"),
+                    !ledgers.jev ? null : item.step ? h("span", {}, t("处理于 "), stepLink(item.step), h("small", {}, " " + percent(item.p_step))) : unjudged ? chip(t("未判断"), "muted") : chip(t("没找到处理步骤"), "warn"),
                     (item.p_harness_conflict || 0) >= 0.5 ? chip(t("与 harness 规则冲突 {p}", { p: percent(item.p_harness_conflict) }), "bad") : null,
                     lost.length ? chip(t("第 {list} 次压缩后摘要里没了", { list: lost.join(t("、")) }), "bad") : null
                   )

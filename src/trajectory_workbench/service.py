@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import contextlib
 import getpass
 import hashlib
 import json
@@ -85,11 +86,19 @@ class Jobs:
         self._jobs: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
 
-    def start(self, kind: str, target: Callable[[Callable[..., None]], Any]) -> dict[str, Any]:
+    def start(self, kind: str, target: Callable[[Callable[..., None]], Any], *, scope: str | None = None,
+              exclusive: bool = False) -> dict[str, Any]:
+        """Start a job. `scope` says what it works on (a collection name; "" is all of them).
+        With `exclusive`, a job of the same kind and scope that is still running is returned
+        instead of starting a second one: a second click must not pay for the same work twice."""
         job_id = uuid.uuid4().hex[:12]
-        job = {"id": job_id, "kind": kind, "status": "running", "done": 0, "total": None,
+        job = {"id": job_id, "kind": kind, "scope": scope, "status": "running", "done": 0, "total": None,
                "message": "", "result": None, "error": None, "started_at": now()}
         with self._lock:
+            if exclusive:
+                for other in self._jobs.values():
+                    if other["kind"] == kind and other["scope"] == scope and other["status"] == "running":
+                        return dict(other)
             self._jobs[job_id] = job
 
         def progress(done: int | None = None, total: int | None = None, message: str | None = None) -> None:
@@ -124,6 +133,18 @@ class Jobs:
             return [dict(job) for job in self._jobs.values()]
 
 
+NO_ORIGINAL = "原始集合里没有这条样本"
+
+
+def _gate_not_compared(gate: dict[str, Any], why: str) -> None:
+    """A record that was not compared with its original (no original, or the diff failed)
+    has an empty change list, which would read as "nothing wrong": exclude it unless a
+    person decided otherwise."""
+    gate["reasons"].append({"level": "exclude", "text": "无法比较：" + why})
+    if not any(reason["level"] == "override" for reason in gate["reasons"]):
+        gate["decision"] = "exclude"
+
+
 def _scan_usable(steps: dict[str, Any]) -> bool:
     """False only for a step scan where requests failed and none succeeded."""
     return not steps.get("errors") or bool((steps.get("summary") or {}).get("analyzed_steps"))
@@ -144,6 +165,8 @@ class WorkbenchService:
         self._cache: OrderedDict[str, tuple[tuple, NormalizedRun]] = OrderedDict()
         self._review_cache: OrderedDict[tuple, dict[str, Any]] = OrderedDict()
         self._cache_lock = threading.Lock()
+        self._paid_locks: dict[tuple[str, str], threading.Lock] = {}
+        self._derived_cache: OrderedDict[str, tuple[NormalizedRun, dict[str, Any]]] = OrderedDict()
         if legacy_registry is not None:
             self.migrate_legacy(legacy_registry)
 
@@ -151,7 +174,7 @@ class WorkbenchService:
 
     def migrate_legacy(self, registry_path: Path) -> int:
         """Import runs listed in the old JSON registry once, when the index is empty."""
-        if self.store.list_sources() or not registry_path.expanduser().is_file():
+        if self.store.list_sources(check_exists=False) or not registry_path.expanduser().is_file():
             return 0
         imported = 0
         for entry in Registry(registry_path).list_entries():
@@ -331,7 +354,7 @@ class WorkbenchService:
             if not review.get("turning_step") or not (review.get("correction") or "").strip():
                 continue
             try:
-                row, run = self._load(review["trajectory_id"])
+                row, run = self._load(review["trajectory_id"], cache=False)
             except (FileNotFoundError, KeyError, OSError, ValueError):
                 continue
             samples = rewrite.correction_samples(run, row, review)
@@ -504,6 +527,8 @@ class WorkbenchService:
                 warnings=settings.get("gate_warnings") or [],
             ),
         )
+        if before_row is None:
+            _gate_not_compared(payload["gate"], NO_ORIGINAL)
         return payload
 
     def _rewrite_neighbours(self, batch: dict[str, Any], sample_id: str, after_row: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -587,9 +612,9 @@ class WorkbenchService:
         for sample, summary in summaries.items():
             # Nothing was compared: never let the record through on an empty change list.
             if summary.get("error"):
-                gates[sample]["reasons"].append({"level": "exclude", "text": "无法比较：" + summary["error"]})
-                if not any(reason["level"] == "override" for reason in gates[sample]["reasons"]):
-                    gates[sample]["decision"] = "exclude"
+                _gate_not_compared(gates[sample], summary["error"])
+            elif summary.get("original_missing") and not summary.get("missing"):
+                _gate_not_compared(gates[sample], NO_ORIGINAL)
         return gates, verdicts
 
     def rewrite_overview(self, batch_id: str) -> dict[str, Any]:
@@ -888,7 +913,7 @@ class WorkbenchService:
         rows = self.export_rows(filters)
         if not rows:
             raise ValueError("no trajectories match these filters")
-        return exporter.export(rows, target, mode=mode, load_run=lambda trajectory_id: self._load(trajectory_id)[1], filters=filters, progress=progress)
+        return exporter.export(rows, target, mode=mode, load_run=lambda trajectory_id: self._load(trajectory_id, cache=False)[1], filters=filters, progress=progress)
 
     def start_export(self, filters: dict[str, Any], name: str, mode: str) -> dict[str, Any]:
         """Export into a new folder under the export root (the browser never picks a path)."""
@@ -977,13 +1002,18 @@ class WorkbenchService:
 
     # -- listing ------------------------------------------------------------------------
 
-    def list_collections(self) -> dict[str, Any]:
-        return {
-            "collections": self.store.collections(),
-            "sources": self.store.list_sources(),
+    def list_collections(self, *, sources: bool = False) -> dict[str, Any]:
+        """The sidebar's data. `sources` adds every registered source with whether its path
+        still exists: one stat per source (hundreds, often on a network disk), so the page,
+        which does not show them, does not ask for it; the `list` command does."""
+        payload = {
+            "collections": self.store.collections(self.reviewer),
             "jev_available": self.analyzer.available(),
             "reviewer": self.reviewer,
         }
+        if sources:
+            payload["sources"] = self.store.list_sources()
+        return payload
 
     def list_trajectories(self, **filters: Any) -> dict[str, Any]:
         total, rows = self.store.query_trajectories(reviewer=self.reviewer, **filters)
@@ -1029,10 +1059,13 @@ class WorkbenchService:
 
     # -- one trajectory -----------------------------------------------------------------
 
-    def get_trajectory(self, trajectory_id: str) -> dict[str, Any]:
+    def get_trajectory(self, trajectory_id: str, *, timeline: bool = False) -> dict[str, Any]:
         row, run = self._load(trajectory_id)
         payload = run.summary_dict()
         payload.pop("tools", None)
+        if not timeline:
+            # No view draws it (about 0.5 MB at 3,000 steps); the Jev export asks for it.
+            payload.pop("timeline", None)
         # Tool definitions are for the rewrite review; the reader does not need them.
         payload["meta"] = {key: value for key, value in (run.meta or {}).items() if key != "tool_specs"}
         payload["id"] = trajectory_id
@@ -1048,12 +1081,13 @@ class WorkbenchService:
         # A later context segment continues this trajectory: end-of-run readings (no check
         # after the last edit, polish tail) do not apply here.
         payload["continues"] = "no_verify" in (row["signals"].get("suppressed") or [])
+        base = harness.base_agent(run)
         payload["tool_index"] = [
             {
                 "id": tool["id"],
                 "step": tool["step"],
                 "name": tool["name"],
-                "layer": signals.harness_layer(tool),
+                "layer": signals.harness_layer(tool, base),
                 "is_error": bool((tool.get("result") or {}).get("is_error")),
                 "mutation": signals.is_mutation(tool),
                 "images": len((tool.get("result") or {}).get("images") or []),
@@ -1104,7 +1138,9 @@ class WorkbenchService:
             raise ValueError("runs_root must be an absolute path prefix")
         # Trajectory paths are stored resolved; resolve the prefix too when it exists here.
         prefix_path = Path(prefix).expanduser()
-        prefix = str(prefix_path.resolve() if prefix_path.exists() else prefix_path).rstrip("/") or "/"
+        prefix = str(prefix_path.resolve() if prefix_path.exists() else prefix_path).rstrip("/")
+        if not prefix:
+            raise ValueError("runs_root must name a directory below /: the root matches no trajectory")
         rows, errors = v4_reward.read_root(base, prefix)
         replaced = self.store.replace_v4_rewards(label, rows)
         matched = sum(1 for row in rows if self._v4_matches(row["task_id"], prefix))
@@ -1261,6 +1297,7 @@ class WorkbenchService:
         _, run = self._load(trajectory_id)
         selected: list[dict[str, Any]] = []
         query = (search or "").casefold()
+        searchable = self._search_text(trajectory_id, run) if query else {}
         for message in run.messages:
             if steps is not None:
                 if message["step"] not in steps:
@@ -1270,19 +1307,21 @@ class WorkbenchService:
                     continue
                 if tool and not any(item["name"] == tool for item in message["tools"]):
                     continue
-                if query and query not in json.dumps(message, ensure_ascii=False).casefold():
+                if query and query not in searchable[id(message)]:
                     continue
             selected.append(message)
-        bounded_offset = max(0, offset)
         bounded_limit = min(500, max(1, limit))
+        # An offset past the end (a link from before a re-import) shows the last page, not nothing.
+        bounded_offset = max(0, min(offset, max(0, len(selected) - 1)))
         page = selected[bounded_offset : bounded_offset + bounded_limit]
-        repeats = self._repeats(run)
+        repeats = self._derived(trajectory_id, run, "repeats", lambda: self._repeats(run))
         positions = {id(tool): index for index, tool in enumerate(run.tools)}
+        base_agent = harness.base_agent(run)
         return {
             "total": len(selected),
             "offset": bounded_offset,
             "limit": bounded_limit,
-            "items": [self._with_media_urls(trajectory_id, message, repeats, positions) for message in page],
+            "items": [self._with_media_urls(trajectory_id, message, repeats, positions, base_agent) for message in page],
         }
 
     def _with_media_urls(
@@ -1291,6 +1330,7 @@ class WorkbenchService:
         message: dict[str, Any],
         repeats: dict[str, dict[str, Any]] | None = None,
         positions: dict[int, int] | None = None,
+        base_agent: str | None = None,
     ) -> dict[str, Any]:
         """Swap image payloads for URLs (inline base64 is served on demand, so a page of
         messages stays small) and annotate tools with their harness layer."""
@@ -1316,13 +1356,47 @@ class WorkbenchService:
                 # Calls are addressed by position: some exporters reuse call ids.
                 owner = f"t:{positions[id(tool)]}" if positions and id(tool) in positions else f"t:{tool['id']}"
                 tool_copy["result"] = {**tool["result"], "images": convert(tool["result"].get("images"), owner)}
-            tool_copy["layer"] = signals.harness_layer(tool)
+            tool_copy["layer"] = signals.harness_layer(tool, base_agent)
             tool_copy["mutation"] = signals.is_mutation(tool)
             if repeats and tool["id"] in repeats:
                 tool_copy["repeat_of"] = repeats[tool["id"]]
             tools.append(tool_copy)
         copy["tools"] = tools
         return copy
+
+    def _derived(self, trajectory_id: str, run: NormalizedRun, name: str, build: Callable[[], Any]) -> Any:
+        """A whole-run value needed by every page of messages (and every search keystroke),
+        built once per parsed run instead of once per request."""
+        with self._cache_lock:
+            entry = self._derived_cache.get(trajectory_id)
+            if entry is None or entry[0] is not run:
+                entry = (run, {})
+                self._derived_cache[trajectory_id] = entry
+                while len(self._derived_cache) > CACHE_SIZE:
+                    self._derived_cache.popitem(last=False)
+            else:
+                self._derived_cache.move_to_end(trajectory_id)
+            values = entry[1]
+        if name not in values:
+            values[name] = build()
+        return values[name]
+
+    def _search_text(self, trajectory_id: str, run: NormalizedRun) -> dict[int, str]:
+        """What the reader's search box looks in, per message: the text a person can see
+        (reply, thinking, tool names, inputs, results), not field names or flags."""
+        def build() -> dict[int, str]:
+            out = {}
+            for message in run.messages:
+                parts = [message.get("text") or "", message.get("thinking") or ""]
+                for tool in message.get("tools") or []:
+                    tool_input = tool.get("input")
+                    parts.append(tool.get("name") or "")
+                    parts.append(tool_input if isinstance(tool_input, str) else json.dumps(tool_input, ensure_ascii=False, default=str))
+                    parts.append((tool.get("result") or {}).get("text") or "")
+                out[id(message)] = "\n".join(parts).casefold()
+            return out
+
+        return self._derived(trajectory_id, run, "search_text", build)
 
     @staticmethod
     def _repeats(run: NormalizedRun) -> dict[str, dict[str, Any]]:
@@ -1411,7 +1485,8 @@ class WorkbenchService:
     # -- reviews ------------------------------------------------------------------------
 
     def save_review(self, trajectory_id: str, fields: dict[str, Any]) -> dict[str, Any]:
-        if self.store.get_trajectory(trajectory_id) is None:
+        row = self.store.get_trajectory(trajectory_id)
+        if row is None:
             raise KeyError(trajectory_id)
         clean: dict[str, Any] = {}
         for key in ("predicted_status", "human_status"):
@@ -1427,7 +1502,12 @@ class WorkbenchService:
             clean["labels"] = sorted({item.strip() for item in labels if item.strip()})
         if "turning_step" in fields:
             value = fields["turning_step"]
-            clean["turning_step"] = int(value) if value not in (None, "") else None
+            try:
+                clean["turning_step"] = int(value) if value not in (None, "") else None
+            except (TypeError, ValueError) as error:
+                raise ValueError("turning_step must be an integer") from error
+            if clean["turning_step"] is not None and not 1 <= clean["turning_step"] <= (row.get("steps") or 0):
+                raise ValueError("turning_step is outside the trajectory")
         for key in ("turning_note", "hypothesis", "correction", "note"):
             if key in fields:
                 clean[key] = (fields[key] or "").strip() or None
@@ -1529,7 +1609,7 @@ class WorkbenchService:
         written = missing = 0
         with out.open("w", encoding="utf-8") as handle:
             for row in rows:
-                trajectory = self.get_trajectory(row["id"])
+                trajectory = self.get_trajectory(row["id"], timeline=True)
                 jev = self._cached_jev(row["id"], row)
                 missing += jev is None or jev.get("steps") is None
                 position = int((row.get("locator") or {}).get("row", 0))
@@ -1559,11 +1639,7 @@ class WorkbenchService:
     def queue(self, collection: str | None, date: str | None, size: int) -> dict[str, Any]:
         day = date or datetime.now(UTC).date().isoformat()
         rows, head_of = self._episodes(collection)
-        reviews: dict[str, dict[str, Any]] = {}
-        for review in self.store.reviews(collection, self.reviewer):
-            head = head_of.get(review["trajectory_id"], review["trajectory_id"])
-            if head not in reviews or review["updated_at"] > reviews[head]["updated_at"]:
-                reviews[head] = review
+        reviews = self._episode_reviews(collection, head_of)
         queue = practice.build_queue(
             rows, reviews, date=day, seed_scope=f"{collection or '*'}:{self.reviewer}", size=max(4, min(100, size))
         )
@@ -1571,9 +1647,19 @@ class WorkbenchService:
             item["trajectory"] = self._list_item(item["trajectory"])
         return queue
 
+    def _episode_reviews(self, collection: str | None, head_of: dict[str, str]) -> dict[str, dict[str, Any]]:
+        """This reviewer's latest review of each episode, by the episode head's id: an
+        episode read on two of its segments is one read episode, not two."""
+        reviews: dict[str, dict[str, Any]] = {}
+        for review in self.store.reviews(collection, self.reviewer):
+            head = head_of.get(review["trajectory_id"], review["trajectory_id"])
+            if head not in reviews or review["updated_at"] > reviews[head]["updated_at"]:
+                reviews[head] = review
+        return reviews
+
     def stats(self, collection: str | None) -> dict[str, Any]:
-        episodes, _ = self._episodes(collection)
-        result = practice.collection_stats(episodes, self.store.reviews(collection, self.reviewer))
+        episodes, head_of = self._episodes(collection)
+        result = practice.collection_stats(episodes, list(self._episode_reviews(collection, head_of).values()), jev_version=STEP_VERSION)
         result["readiness"] = readiness_stats(self.store.all_trajectories(collection, columns=("id", "readiness")))
         result["harness"] = harness_stats(self.store.all_trajectories(collection, columns=("id", "signals", "jev_summary")))
         result["jev"]["usage"] = self.store.jev_usage(collection)
@@ -1593,33 +1679,42 @@ class WorkbenchService:
             return None
         return {"steps": steps, "task": task, "summary": row.get("jev_summary")}
 
+    def _paid_lock(self, trajectory_id: str, kind: str) -> threading.Lock:
+        """One lock per trajectory and kind of paid Jev work: two requests for the same scan
+        (a second click, the reader opened twice, a batch and a reader) run one after the
+        other, and the second finds the first one's cached result."""
+        with self._cache_lock:
+            return self._paid_locks.setdefault((trajectory_id, kind), threading.Lock())
+
     def analyze(self, trajectory_id: str, force: bool = False) -> dict[str, Any]:
         row, run = self._load(trajectory_id)
         fingerprint = row.get("fingerprint")
-        steps = None if force else self.store.get_jev(trajectory_id, "steps", STEP_VERSION, fingerprint)
-        task = None if force else self.store.get_jev(trajectory_id, "task", TASK_VERSION, fingerprint)
-        try:
-            if steps is None:
-                steps = self.analyzer.analyze_steps(run)
-                # A scan in which every request failed (Jev down) is not kept, so the next
-                # open or batch retries it. A partly failed one is kept and shown with its
-                # failed-step count: a step that always fails must not re-bill the whole
-                # scan on every open.
-                if _scan_usable(steps):
+        with self._paid_lock(trajectory_id, "analyze"):
+            steps = None if force else self.store.get_jev(trajectory_id, "steps", STEP_VERSION, fingerprint)
+            task = None if force else self.store.get_jev(trajectory_id, "task", TASK_VERSION, fingerprint)
+            try:
+                if steps is None:
+                    steps = self.analyzer.analyze_steps(run)
+                    # A scan in which every request failed (Jev down) is not kept, so the next
+                    # open or batch retries it, and it is an error: the task check is not paid
+                    # for and a batch counts the failure. A partly failed one is kept and shown
+                    # with its failed-step count: a step that always fails must not re-bill the
+                    # whole scan on every open.
+                    if not _scan_usable(steps):
+                        raise ValueError(f"Jev step scan failed: all {steps.get('errors')} requests failed")
                     self.store.put_jev(trajectory_id, "steps", STEP_VERSION, fingerprint, steps.get("model"), steps.get("input_tokens"), steps)
-            if task is None:
-                task = self.analyzer.analyze_task(run)
-                self.store.put_jev(trajectory_id, "task", TASK_VERSION, fingerprint, task.get("model"), task.get("input_tokens"), task)
-        except JevUnavailable as error:
-            raise ValueError(f"Jev unavailable: {error}") from error
-        summary = dict(steps.get("summary") or {})
-        summary["final_claim"] = (task.get("final_claim") or {}).get("choice")
-        summary["task_ambiguity"] = (task.get("task_ambiguity") or {}).get("score")
-        summary["consistency"] = outcome_consistency(task.get("final_claim"), run.outcome)
-        summary["version"] = STEP_VERSION
-        if _scan_usable(steps):
+                if task is None:
+                    task = self.analyzer.analyze_task(run)
+                    self.store.put_jev(trajectory_id, "task", TASK_VERSION, fingerprint, task.get("model"), task.get("input_tokens"), task)
+            except JevUnavailable as error:
+                raise ValueError(f"Jev unavailable: {error}") from error
+            summary = dict(steps.get("summary") or {})
+            summary["final_claim"] = (task.get("final_claim") or {}).get("choice")
+            summary["task_ambiguity"] = (task.get("task_ambiguity") or {}).get("score")
+            summary["consistency"] = outcome_consistency(task.get("final_claim"), run.outcome)
+            summary["version"] = STEP_VERSION
             self.store.set_jev_summary(trajectory_id, summary)
-        return {"steps": steps, "task": task, "summary": summary}
+            return {"steps": steps, "task": task, "summary": summary}
 
     def batch_rows(self, collection: str | None, limit: int, include_done: bool = False) -> list[dict[str, Any]]:
         """Trajectories a Jev batch would analyze: never analyzed, or by an older version."""
@@ -1668,7 +1763,7 @@ class WorkbenchService:
             progress(done=0, total=len(rows))
             return self.run_batch(rows, progress)
 
-        return self.jobs.start("jev", work)
+        return self.jobs.start("jev", work, scope=collection or "", exclusive=True)
 
     def ledgers(self, trajectory_id: str, *, run_jev: bool = False, force: bool = False) -> dict[str, Any]:
         """Requirement / delegation / plan / hook / compaction ledgers.
@@ -1678,20 +1773,21 @@ class WorkbenchService:
         """
         row, run = self._load(trajectory_id)
         fingerprint = row.get("fingerprint")
-        cached = None if force else self.store.get_jev(trajectory_id, "ledgers", LEDGER_VERSION, fingerprint)
-        if cached is not None:
-            return cached
         instruction = (run.task or {}).get("instruction") or row.get("instruction")
-        if not run_jev:
-            return build_ledgers(run, instruction, None)
-        if not self.analyzer.available():
-            raise ValueError("Jev unavailable: TYPESAFE_API_KEY is not set")
-        result = build_ledgers(run, instruction, self.analyzer)
-        if result.get("error"):
-            raise ValueError(result["error"])
-        if not result.get("incomplete"):
-            self.store.put_jev(trajectory_id, "ledgers", LEDGER_VERSION, fingerprint, None, result.get("input_tokens"), result)
-        return result
+        with self._paid_lock(trajectory_id, "ledgers") if run_jev else contextlib.nullcontext():
+            cached = None if force else self.store.get_jev(trajectory_id, "ledgers", LEDGER_VERSION, fingerprint)
+            if cached is not None:
+                return cached
+            if not run_jev:
+                return build_ledgers(run, instruction, None)
+            if not self.analyzer.available():
+                raise ValueError("Jev unavailable: TYPESAFE_API_KEY is not set")
+            result = build_ledgers(run, instruction, self.analyzer)
+            if result.get("error"):
+                raise ValueError(result["error"])
+            if not result.get("incomplete"):
+                self.store.put_jev(trajectory_id, "ledgers", LEDGER_VERSION, fingerprint, None, result.get("input_tokens"), result)
+            return result
 
     def find_steps(self, trajectory_id: str, query: str) -> dict[str, Any]:
         if not query.strip():
@@ -1721,6 +1817,12 @@ class WorkbenchService:
                 self._cache.move_to_end(trajectory_id)
                 return row, cached[1]
         run = adapter.load(path, row.get("locator"))
+        if row.get("run_id") and run.run_id and run.run_id != row["run_id"]:
+            # A multi-sample file rewritten in place: the stored offset now points at another
+            # sample. Showing it would attach notes, reviews and paid scans to the wrong run.
+            raise ValueError(
+                f"source changed since import (expected sample {row['run_id']}, found {run.run_id}); re-index the collection"
+            )
         if not cache:
             return row, run
         with self._cache_lock:

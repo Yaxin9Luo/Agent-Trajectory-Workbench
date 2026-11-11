@@ -809,9 +809,13 @@ def iter_jsonl(path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
                 yield line_number, value
 
 
-def sniff_jsonl(path: Path, limit: int = 40, max_bytes: int = 4_000_000) -> list[dict[str, Any]]:
-    """Parse the first few JSON lines of a file without reading all of it."""
+def sniff_jsonl(
+    path: Path, limit: int = 40, max_bytes: int = 4_000_000, uncounted: frozenset[str] = frozenset()
+) -> list[dict[str, Any]]:
+    """Parse the first few JSON lines of a file without reading all of it. Rows whose
+    `type` is in `uncounted` (bookkeeping) do not count toward `limit`."""
     rows: list[dict[str, Any]] = []
+    counted = 0
     try:
         with path.open("rb") as handle:
             read = 0
@@ -827,7 +831,9 @@ def sniff_jsonl(path: Path, limit: int = 40, max_bytes: int = 4_000_000) -> list
                     return rows
                 if isinstance(value, dict):
                     rows.append(value)
-                if len(rows) >= limit:
+                    kind = value.get("type")
+                    counted += not (isinstance(kind, str) and kind in uncounted)
+                if counted >= limit:
                     break
     except OSError:
         return []

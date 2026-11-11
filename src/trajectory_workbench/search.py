@@ -56,14 +56,15 @@ def snippet(message: dict[str, Any], terms: list[str], width: int = 90) -> dict[
         tool_input = tool.get("input")
         fields.append(("input", tool_input if isinstance(tool_input, str) else json.dumps(tool_input, ensure_ascii=False, default=str)))
         fields.append(("output", (tool.get("result") or {}).get("text") or ""))
-    lowered = [term.casefold() for term in terms]
+    patterns = [re.compile(re.escape(term), re.IGNORECASE) for term in terms if term]
     for field, text in fields:
-        folded = text.casefold()
-        for term in lowered:
-            index = folded.find(term)
-            if index >= 0:
-                start = max(0, index - width)
-                end = min(len(text), index + len(term) + width)
+        for pattern in patterns:
+            # Matched on the text itself: positions in a case-folded copy do not line up
+            # with the original when folding changes its length (ß → ss).
+            match = pattern.search(text)
+            if match:
+                start = max(0, match.start() - width)
+                end = min(len(text), match.end() + width)
                 return {
                     "field": field,
                     "text": ("…" if start else "") + text[start:end].replace("\n", " ") + ("…" if end < len(text) else ""),

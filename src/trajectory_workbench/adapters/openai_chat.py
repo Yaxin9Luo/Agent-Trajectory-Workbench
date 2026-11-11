@@ -28,6 +28,7 @@ from trajectory_workbench.adapters.common import (
     classify_failure,
     make_outcome,
     parse_arguments,
+    parse_timestamp_ms,
     read_json,
     score_status,
     sniff_jsonl,
@@ -332,10 +333,11 @@ class OpenAIChatAdapter:
             task_id = match.group("task") if match else None
         start_ms = end_ms = None
         if timing:
-            from trajectory_workbench.adapters.common import parse_timestamp_ms
-
             start_ms = parse_timestamp_ms(timing.get("start"))
             end_ms = parse_timestamp_ms(timing.get("end"))
+        # Tokens and wall time in results.json cover the whole trial: they go on its main
+        # sample only, so an episode summed over segments and subagents counts them once.
+        trial_totals = group["group_role"] != "subagent" and group["segment"] in (None, 1)
         run = finish_run(
             builder,
             adapter_id=adapter_id or self.adapter_id,
@@ -346,10 +348,10 @@ class OpenAIChatAdapter:
             outcome=outcome,
             meta=meta,
             available_tools=available,
-            extra_metrics={"total_tokens": (timing or {}).get("tokens")},
+            extra_metrics={"total_tokens": (timing or {}).get("tokens") if trial_totals else None},
             start_ms=start_ms if any(m["offset_ms"] is not None for m in builder.messages) else None,
         )
-        if start_ms is not None and end_ms is not None and end_ms >= start_ms:
+        if trial_totals and start_ms is not None and end_ms is not None and end_ms >= start_ms:
             run.metrics["wall_ms"] = end_ms - start_ms
         return run
 

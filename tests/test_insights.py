@@ -113,16 +113,20 @@ class InsightsServiceTest(unittest.TestCase):
     def test_errors_and_diffs_are_served(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
-            run = make_moh_run(base / "run")
             service = WorkbenchService(Store(base / "index.db"), reviewer="t")
-            service.import_path(str(run), None)
-            run_id = service.list_trajectories()["items"][0]["id"]
-            errors = service.get_errors(run_id)
-            diffs = service.get_artifact_diffs(run_id)
-            comparison = service.compare([run_id, run_id])
+            service.import_path(str(make_moh_run(base / "run-a")), "a")
+            service.import_path(str(make_moh_run(base / "run-b", extra_tool_names=("Task",))), "b")
+            items = service.list_trajectories()["items"]
+            ids = {item["collection"]: item["id"] for item in items}
+            errors = service.get_errors(ids["a"])
+            diffs = service.get_artifact_diffs(ids["a"])
+            comparison = service.compare([ids["a"], ids["b"]])
+        self.assertEqual(len(items), 2)
         self.assertEqual(errors["error_count"], 0)
-        self.assertGreaterEqual(diffs["state_count"], 0)
+        # The fixture records three observations of two contents (aaa twice, then bbb).
+        self.assertEqual(diffs["state_count"], 2)
         self.assertEqual(comparison["run_count"], 2)
+        self.assertIn("Task", comparison["comparison"]["tool_diff"])
 
 
 if __name__ == "__main__":

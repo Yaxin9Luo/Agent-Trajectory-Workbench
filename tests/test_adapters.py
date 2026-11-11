@@ -14,9 +14,11 @@ from trajectory_workbench.adapters import (
     TraceLabTrialAdapter,
     discover,
 )
-from trajectory_workbench.adapters.common import task_key
+from trajectory_workbench import harness
+from trajectory_workbench.adapters.common import sniff_jsonl, task_key
 from tests.fixtures import (
     atif_document,
+    chat_sample,
     make_claude_session,
     make_codex_rollout,
     make_harbor_cc_trial,
@@ -25,7 +27,9 @@ from tests.fixtures import (
     make_sft_export,
     make_tracelab_trial,
     PNG_BASE64,
+    tracelab_result,
     write_json,
+    write_jsonl,
 )
 
 
@@ -55,6 +59,42 @@ class ClaudeCodeAdapterTest(unittest.TestCase):
         self.assertEqual(run.meta["model"], "claude-test")
         self.assertEqual(run.metrics["max_offset_ms"], 40_000)
         self.assertEqual(run.outcome["status"], "unknown")
+
+    def test_session_opening_with_many_bookkeeping_rows_is_detected(self) -> None:
+        # Long sessions open with hundreds of file-history snapshots and title / mode rows;
+        # those do not use up the rows read for detection.
+        with tempfile.TemporaryDirectory() as temp:
+            path = make_claude_session(Path(temp) / "s.jsonl")
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            filler = [{"type": kind, "sessionId": "sess-1"} for kind in ("custom-title", "agent-name", "mode")]
+            filler += [{"type": "file-history-snapshot", "messageId": f"m{i}", "snapshot": {}} for i in range(60)]
+            path.write_text("\n".join(json.dumps(row) for row in filler + rows) + "\n")
+            self.assertTrue(ClaudeCodeAdapter().detect(path))
+            # The byte cap still holds.
+            self.assertLess(len(sniff_jsonl(path, max_bytes=2000, uncounted=frozenset({"file-history-snapshot"}))), 40)
+
+    def test_instructions_attachment_keeps_every_file_whole(self) -> None:
+        # Claude Code 2.x records CLAUDE.md as {type: instructions, files: [{path, type, content}]}.
+        claude_md = "# Project rules\nAlways write the summary to `notes/summary.md`.\n" + "Rule text. " * 600
+        common = {"sessionId": "S", "uuid": "u"}
+        rows = [
+            {**common, "type": "attachment", "attachment": {"type": "instructions", "files": [
+                {"path": "/repo/CLAUDE.md", "type": "Project", "content": claude_md},
+                {"path": "/home/me/.claude/CLAUDE.md", "type": "User", "content": "Be brief."}]}},
+            {**common, "type": "user", "message": {"role": "user", "content": "Summarize the logs"}},
+            {**common, "type": "assistant", "message": {"id": "a1", "content": [{"type": "text", "text": "Done."}]}},
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "s.jsonl"
+            write_jsonl(path, rows)
+            run = ClaudeCodeAdapter().load(path, None)
+        first = run.messages[0]
+        self.assertEqual(first["layer"], "instruction")
+        self.assertEqual(
+            first["text"],
+            "[instructions] Contents of /repo/CLAUDE.md:\n" + claude_md + "\n\nContents of /home/me/.claude/CLAUDE.md:\nBe brief.",
+        )
+        self.assertIn(("instruction", "CLAUDE.md"), {(c["kind"], c["name"]) for c in harness.inventory(run)["components"]})
 
     def test_moh_stream_json_is_recognized(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -117,6 +157,30 @@ class ChatSampleAdapterTest(unittest.TestCase):
         self.assertEqual(main.outcome["status"], "pass")
         self.assertEqual(sub.outcome["status"], "fail")
         self.assertEqual(again.run_id, compacted.run_id)
+
+    def test_trial_tokens_and_wall_time_go_on_the_main_sample_only(self) -> None:
+        # results.json totals cover the whole trial; copying them onto every segment and
+        # subagent made the episode sum count them several times.
+        timing = {"agent_started_at": "2026-09-01T00:00:00Z", "agent_ended_at": "2026-09-01T00:10:00Z",
+                  "total_input_tokens": 1000, "total_output_tokens": 50}
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            trial = make_tracelab_trial(base / "x-9_trial", resolved=True)
+            write_jsonl(trial / "dialog.jsonl", [
+                chat_sample("x-9_k3_attempt_01", "Write a haiku deck"),
+                chat_sample("x-9_k3_attempt_01_context_02", "This session is being continued from a previous conversation.",
+                            tag={"context_segment": "2"}),
+                chat_sample("x-9_k3_attempt_01_subagent_ab12", "Review the deck"),
+            ])
+            write_json(trial / "results.json", {"results": [tracelab_result("x-9", True, **timing)]})
+            trial_runs = [run for _, run in TraceLabTrialAdapter().iter_runs(trial)]
+            # The same rule through an SFT export's manifest (t-002: segment 1, segment 2, subagent).
+            path = make_sft_export(base / "sft", results_root=base / "trials")
+            write_json(base / "trials/t-002_trial/results.json", {"results": [tracelab_result("t-002", False, **timing)]})
+            export_runs = [run for _, run in OpenAIChatAdapter().iter_runs(path)][1:]
+        for runs in (trial_runs, export_runs):
+            self.assertEqual([run.metrics["total_tokens"] for run in runs], [1050, None, None])
+            self.assertEqual([run.metrics.get("wall_ms") for run in runs], [600_000, None, None])
 
     def test_manifest_join_refuses_rows_from_another_task(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -181,6 +181,9 @@ def build_queue(
         group = [row for row in by_task[key] if row["id"] not in used]
         good = [row for row in group if row.get("outcome_status") == "pass"]
         bad = [row for row in group if row.get("outcome_status") in {"fail", "error", "partial"}]
+        # Pairs come two at a time: never start one that would push the queue past its size.
+        if len(items) + 2 > size:
+            break
         if pairs_taken < quotas["pair"] and good and bad:
             a, b = rng.choice(good), rng.choice(bad)
             take(a, "pair", "同一道题的成功样本", pair_with=b["id"])
@@ -235,6 +238,8 @@ def build_queue(
     for bucket_rows in by_type.values():
         rng.shuffle(bucket_rows)
     kinds = sorted(by_type, key=lambda key: (-len(by_type[key]), key))
+    # Counted before anything is taken, so every item of a type shows the same number.
+    type_totals = {kind: len(by_type[kind]) for kind in kinds}
     taken = 0
     while taken < quotas["failure"] and any(by_type[k] for k in kinds):
         for kind in kinds:
@@ -243,7 +248,7 @@ def build_queue(
             if by_type[kind]:
                 row = by_type[kind].pop()
                 if row["id"] not in used:
-                    take(row, "failure", f"失败类型：{kind}（本集合 {len(by_type[kind]) + 1}+ 条）")
+                    take(row, "failure", f"失败类型：{kind}（本集合 {type_totals[kind]}+ 条）")
                     taken += 1
 
     # 4. Random control, and fill any shortfall from the other buckets.
@@ -252,6 +257,9 @@ def build_queue(
     shortfall = max(0, size - len(items))
     for row in rest[:shortfall]:
         take(row, "random", "随机抽样：防止筛选带偏")
+    # Each bucket takes at least one item, which can add up to more than a small queue;
+    # pairs were taken first and never exceed the size, so cutting the end splits none.
+    del items[size:]
     return {
         "date": date,
         "size": len(items),
@@ -261,7 +269,9 @@ def build_queue(
     }
 
 
-def collection_stats(rows: list[dict[str, Any]], reviews: list[dict[str, Any]]) -> dict[str, Any]:
+def collection_stats(rows: list[dict[str, Any]], reviews: list[dict[str, Any]], jev_version: str | None = None) -> dict[str, Any]:
+    """`rows` are episode heads and `reviews` at most one per episode. With `jev_version`,
+    Jev summaries written by another version of the step questions are left out."""
     total = len(rows)
     outcome_counts = Counter(row.get("outcome_status") or "unknown" for row in rows)
 
@@ -280,7 +290,10 @@ def collection_stats(rows: list[dict[str, Any]], reviews: list[dict[str, Any]]) 
                 "fail_share": _share(by_outcome["fail"] + by_outcome["error"], outcome_counts["fail"] + outcome_counts["error"]),
             }
         )
-    jev_rows = [row for row in rows if row.get("jev_summary")]
+    jev_rows = [
+        row for row in rows
+        if row.get("jev_summary") and (jev_version is None or row["jev_summary"].get("version") == jev_version)
+    ]
     jev_prevalence = Counter()
     for row in jev_rows:
         for key, count in (row["jev_summary"].get("flag_counts") or {}).items():

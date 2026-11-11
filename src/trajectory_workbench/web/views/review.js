@@ -20,6 +20,7 @@ export function renderReviewPanel(slot, reader) {
   // Text typed but not yet sent (the debounce below): a save from another control returns
   // the server's older text, which must not replace what is on screen.
   const unsent = new Set();
+  /** Saves the fields; true when the server stored them. */
   const saveNow = async (fields) => {
     Object.keys(fields).forEach((key) => unsent.delete(key));
     Object.assign(review, fields);
@@ -30,8 +31,10 @@ export function renderReviewPanel(slot, reader) {
       review = { ...review, ...saved, ...typed };
       reader.onReview(review);
       status.textContent = t("已保存 {time}", { time: new Date().toLocaleTimeString() });
+      return true;
     } catch (error) {
       status.textContent = t("保存失败：{error}", { error: error.message });
+      return false;
     }
   };
   const saveLater = debounce(saveNow, 600);
@@ -58,6 +61,19 @@ export function renderReviewPanel(slot, reader) {
     return element;
   }
 
+  // Jev turning-point candidates. The automatic Jev scan can finish while the panel is open; it
+  // then redraws only this row, so the text fields keep their content and keyboard focus.
+  const candidatesSlot = h("div", { style: { display: "contents" } });
+  function renderCandidates() {
+    const candidates = state.jev?.summary?.turning_candidates || [];
+    clear(
+      candidatesSlot,
+      candidates.length
+        ? h("div", { class: "chips" }, h("span", { class: "hint" }, t("Jev 候选：")), candidates.slice(0, 5).map((item) => h("button", { type: "button", class: "chip jev", onclick: () => reader.jump(item.step), title: item.reasons.map(tb).join(t("、")) }, "#" + item.step + " " + tb(item.reasons[0]))))
+        : null
+    );
+  }
+
   function render() {
     const outcome = run.outcome || {};
     const parts = [];
@@ -81,8 +97,11 @@ export function renderReviewPanel(slot, reader) {
             [["pass", t("通过")], ["partial", t("部分")], ["fail", t("失败")]],
             review.predicted_status,
             async (value) => {
-              await saveNow({ predicted_status: value });
-              if (value && !state.revealed) reader.reveal();
+              // A guess that did not save must not reveal the grade, nor show as picked.
+              const previous = review.predicted_status;
+              const saved = await saveNow({ predicted_status: value });
+              if (!saved) review.predicted_status = previous;
+              else if (value && !state.revealed) reader.reveal();
               render();
             }
           ),
@@ -118,7 +137,7 @@ export function renderReviewPanel(slot, reader) {
     // 2. Turning point.
     const stepInput = h("input", { type: "number", min: 1, value: review.turning_step ?? "", placeholder: t("步号") });
     stepInput.addEventListener("change", () => saveNow({ turning_step: stepInput.value ? Number(stepInput.value) : null }).then(render));
-    const candidates = state.jev?.summary?.turning_candidates || [];
+    renderCandidates();
     parts.push(
       h(
         "div",
@@ -130,9 +149,7 @@ export function renderReviewPanel(slot, reader) {
           stepInput,
           review.turning_step ? h("button", { type: "button", class: "link-button", onclick: () => reader.jump(review.turning_step) }, t("跳到 #{step}", { step: review.turning_step })) : h("span", { class: "hint" }, t("也可在步骤上点“设为转折点”"))
         ),
-        candidates.length
-          ? h("div", { class: "chips" }, h("span", { class: "hint" }, t("Jev 候选：")), candidates.slice(0, 5).map((item) => h("button", { type: "button", class: "chip jev", onclick: () => reader.jump(item.step), title: item.reasons.map(tb).join(t("、")) }, "#" + item.step + " " + tb(item.reasons[0]))))
-          : null,
+        candidatesSlot,
         textarea("turning_note", t("一句话：为什么在这一步走偏（理解错题 / 没读懂工具返回 / 没验证就往下走 / 忘了早期约束…）"))
       )
     );
@@ -283,6 +300,8 @@ export function renderReviewPanel(slot, reader) {
 
   render();
   return {
+    /** New Jev results: update the candidates row (it is on the page only after the reveal). */
+    refresh: renderCandidates,
     setTurning(step) {
       if (!state.revealed) {
         status.textContent = t("先完成盲判");

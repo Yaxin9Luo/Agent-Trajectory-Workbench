@@ -121,6 +121,35 @@ class InventoryTest(unittest.TestCase):
         self.assertEqual([(c["kind"], c["name"]) for c in found["components"]], [("instruction", "AGENTS.md")])
         self.assertNotIn("harness_ref", {f["key"] for f in signals.compute(run)["flags"]})
 
+    def test_instruction_file_as_the_first_system_message(self) -> None:
+        # Claude Code 2.x sessions do not record the system prompt, so CLAUDE.md (the
+        # adapter's rendering of an `instructions` attachment) can come first; so can
+        # AGENTS.md in a Codex rollout without a developer message.
+        cases = {
+            "claude-code": ("[instructions] Contents of /repo/CLAUDE.md:\n# Project rules\nAlways write the summary to `notes/summary.md`.",
+                            "CLAUDE.md", "notes/summary.md"),
+            "codex": ("# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>Always write the report to `report/summary.md`.</INSTRUCTIONS>",
+                      "AGENTS.md", "report/summary.md"),
+        }
+        for fmt, (text, name, path) in cases.items():
+            with self.subTest(fmt):
+                builder = TranscriptBuilder()
+                builder.add_message("system", text=text, extra={"layer": "instruction"})
+                builder.add_message("user", text="Summarize the logs")
+                builder.add_message("assistant", text="Done.")
+                run = finish_run(builder, adapter_id=fmt, source_path="/tmp/x", run_id="r", title=None, outcome=make_outcome(),
+                                 meta={"format": fmt})
+                found = [(c["kind"], c["name"]) for c in harness.inventory(run)["components"]]
+                self.assertEqual(found, [("instruction", name), ("file", path)])
+        # The stock prompt itself is still not read as an instruction file.
+        run = build(STOCK_PROMPT + " User rules arrive in <user_instructions>.\n", [])
+        self.assertEqual(harness.inventory(run)["components"], [])
+
+    def test_comment_lines_in_code_blocks_are_not_sections(self) -> None:
+        rules = STOCK_PROMPT + "\n# Build rules\nRun this first:\n```bash\n# install the deps\nnpm ci\n# then build\nnpm run build\n```\n"
+        run = build(rules, [])
+        self.assertEqual([c["name"] for c in harness.inventory(run)["components"] if c["kind"] == "instruction"], ["Build rules"])
+
     def test_system_prompt_recorded_outside_the_messages(self) -> None:
         run = build("", [("", "", [("Write", {"file_path": "artifact.html"})])], available=["Bash", "Read", "Write"])
         run.model_prompt = {"system": {"text": STOCK_PROMPT + ADDED}}

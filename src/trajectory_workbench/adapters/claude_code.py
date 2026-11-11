@@ -34,6 +34,9 @@ IGNORED_TYPES = {
     "file-history-snapshot",
     "custom-title",
 }
+# Rows that carry no turn: long sessions open with hundreds of them (one file-history
+# snapshot per edit), so they do not count toward the rows read for detection.
+BOOKKEEPING_TYPES = frozenset(IGNORED_TYPES | {"agent-name", "mode"})
 
 
 # User-role rows that the harness writes, not the person: slash commands, their output,
@@ -111,7 +114,7 @@ class ClaudeCodeAdapter:
 
     def detect(self, path: Path) -> bool:
         return path.is_file() and path.suffix == ".jsonl" and looks_like_claude_code(
-            sniff_jsonl(path)
+            sniff_jsonl(path, uncounted=BOOKKEEPING_TYPES)
         )
 
     def iter_runs(self, path: Path) -> Iterator[tuple[dict[str, Any] | None, NormalizedRun]]:
@@ -126,7 +129,6 @@ class ClaudeCodeAdapter:
         *,
         source_path: Path,
         run_id: str,
-        adapter_id: str | None = None,
     ) -> NormalizedRun:
         builder = TranscriptBuilder()
         available: list[str] = []
@@ -151,6 +153,10 @@ class ClaudeCodeAdapter:
                 layer = attachment_layer(str(attachment.get("type", "")))
                 if layer is not None:
                     body = attachment.get("content")
+                    files = attachment.get("files")
+                    if body is None and isinstance(files, list) and files and all(isinstance(f, dict) for f in files):
+                        # Claude Code 2.x: {type: instructions, files: [{path, type, content}]}.
+                        body = "\n\n".join(f"Contents of {f.get('path')}:\n{f.get('content') or ''}" for f in files)
                     if isinstance(body, list):
                         body = "\n".join(str(item) for item in body)
                     if not isinstance(body, str) or not body:
@@ -363,7 +369,7 @@ class ClaudeCodeAdapter:
                 tool["step"] = index
         return finish_run(
             builder,
-            adapter_id=adapter_id or self.adapter_id,
+            adapter_id=self.adapter_id,
             source_path=source_path,
             run_id=run_id,
             title=None,

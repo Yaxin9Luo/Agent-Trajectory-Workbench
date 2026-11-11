@@ -32,6 +32,16 @@ class SignalTest(unittest.TestCase):
         self.assertEqual(found["loop"]["steps"], [2, 3, 4])
         self.assertIn("blind_retry", found)
 
+    def test_builtin_namespaced_tool_is_not_mcp(self) -> None:
+        # Codex ships `clock__sleep`; the harness inventory treats it as stock, so must the layers.
+        run = build([("", "", [("clock__sleep", {}, "ok", False), ("exec", {"cmd": "ls"}, "ok", False)])], meta={"format": "codex"})
+        layers = signals.compute(run)["values"]["layers"]
+        self.assertEqual((layers["base"], layers["mcp"]), (2, 0))
+        self.assertEqual(signals.harness_layer({"name": "clock__sleep"}, "codex"), "base")
+        # Without a base (or with an mcp__ prefix) a namespaced name is still MCP.
+        self.assertEqual(signals.harness_layer({"name": "clock__sleep"}), "mcp")
+        self.assertEqual(signals.harness_layer({"name": "mcp__clock__sleep"}, "codex"), "mcp")
+
     def test_changed_retry_is_not_blind(self) -> None:
         run = build([
             ("", "", [("Bash", {"command": "npm test"}, "Error", True)]),

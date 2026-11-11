@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  editDiff,
   firstDivergence,
+  formatCount,
   formatDuration,
   graderAgreement,
   queueProgress,
@@ -192,6 +194,26 @@ test("lineDiff marks removed and added lines", () => {
     { op: "=", text: "summary" },
   ]);
   assert.equal(lineDiff("x\n".repeat(900), "y"), null);
+  // An empty side has no lines, not one empty line.
+  assert.deepEqual(lineDiff("", "x\ny"), [{ op: "+", text: "x" }, { op: "+", text: "y" }]);
+  assert.deepEqual(lineDiff("a", ""), [{ op: "-", text: "a" }]);
+  assert.deepEqual(lineDiff("", ""), []);
+});
+
+test("editDiff falls back when one huge line would bypass folding", () => {
+  assert.deepEqual(editDiff("x = 1", "x = 2"), [{ op: "-", text: "x = 1" }, { op: "+", text: "x = 2" }]);
+  // One line each, so the line limit alone would let it through.
+  assert.equal(editDiff("a".repeat(7000), "b".repeat(7000)), null);
+  assert.ok(editDiff("a".repeat(6000), "b".repeat(6000)));
+});
+
+test("formatCount never shows 1000k", () => {
+  assert.equal(formatCount(9999), "9,999");
+  assert.equal(formatCount(12_345), "12k");
+  assert.equal(formatCount(999_499), "999k");
+  assert.equal(formatCount(999_500), "1.0M");
+  assert.equal(formatCount(999_999), "1.0M");
+  assert.equal(formatCount(1_250_000), "1.3M");
 });
 
 test("v4 crop window keeps the box in view and clamps to the viewport", async () => {

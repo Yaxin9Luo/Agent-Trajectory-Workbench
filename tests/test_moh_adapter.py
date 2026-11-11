@@ -223,6 +223,23 @@ class MohV1AdapterTest(unittest.TestCase):
         self.assertTrue(catalog["Slides Workbench"]["declared"])
         self.assertEqual(normalized.native_tool_surfaces, ["default"])
 
+    def test_renamed_mcp_tool_is_one_harness_component(self) -> None:
+        # The catalog shows `mcp__slides_workbench__slides_workbench` as "Slides Workbench";
+        # on a Claude Code base that display name is not a second, extra tool.
+        from trajectory_workbench import harness
+
+        with tempfile.TemporaryDirectory() as temp:
+            run = make_moh_run(Path(temp) / "run")
+            trace_path = run / "attempts/001/records/trajectory.jsonl"
+            rows = [json.loads(line) for line in trace_path.read_text().splitlines()]
+            rows[0]["tools"] += ["Read", "Edit", "Write"]
+            write_jsonl(trace_path, rows)
+            normalized = MohV1Adapter().load(run)
+
+        self.assertEqual(harness.base_agent(normalized), "claude-code")
+        components = [(c["kind"], c["name"]) for c in harness.inventory(normalized)["components"]]
+        self.assertEqual(components, [("mcp", "slides_workbench")])
+
     def test_distinct_observed_tool_names_are_not_collapsed_as_aliases(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             run = make_moh_run(

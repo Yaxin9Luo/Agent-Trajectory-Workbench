@@ -1,4 +1,4 @@
-import { api, pollJob } from "../api.js";
+import { api, pollJob, runningJob } from "../api.js";
 import { chip, clear, debounce, empty, h } from "../dom.js";
 import { OUTCOME_LABELS, ROLE_LABELS, formatCount, formatDuration, formatReward, outcomeTone } from "../presentation.mjs";
 import { t, tb } from "../i18n.mjs";
@@ -28,10 +28,16 @@ export async function renderLibrary(root, ctx, params, still) {
   const title = ctx.collection || t("全部集合");
 
   const status = h("span", { class: "muted" });
+  // Its own line, so the episode count written by load() does not overwrite the job's progress.
+  const jevStatus = h("span", { class: "muted" });
   const batchButton = h("button", { type: "button", class: "secondary", disabled: !ctx.jevAvailable }, t("对未分析的轨迹跑 Jev"));
   const compareLink = h("span");
   ctx.onCompareChange = () => {
     const selection = ctx.compareSelection;
+    // toggleCompare keeps only the last two, so a box other than the clicked one can drop out.
+    root.querySelectorAll("input.pick[data-id]").forEach((box) => {
+      box.checked = selection.includes(box.dataset.id);
+    });
     clear(
       compareLink,
       selection.length === 2
@@ -44,7 +50,7 @@ export async function renderLibrary(root, ctx, params, still) {
     "header",
     { class: "page-head" },
     h("div", {}, h("span", { class: "eyebrow" }, t("轨迹库")), h("h1", {}, title)),
-    h("div", { class: "head-actions" }, compareLink, status, exportMenu(), batchButton)
+    h("div", { class: "head-actions" }, compareLink, status, exportMenu(), jevStatus, batchButton)
   );
 
   /** Export what the current filters show as training JSONL plus a data card. */
@@ -121,8 +127,47 @@ export async function renderLibrary(root, ctx, params, still) {
     element.value = filters[name];
     return element;
   };
-  const search = h("input", { type: "search", placeholder: t("搜索标题 / 任务 / id"), value: filters.search });
-  search.addEventListener("input", debounce(() => update({ search: search.value.trim(), offset: 0 }), 250));
+  // Typed filters re-render the view through the URL. The rebuilt input gets back the focus,
+  // caret and untrimmed text of the one being typed in (ctx.libraryFocus); nothing runs while
+  // an IME composition is open, and a pending change is dropped once the view has been left.
+  const typedInputs = {};
+  function typed(input, name, wait) {
+    let composing = false;
+    const fire = debounce(() => {
+      if (composing || !still()) return;
+      if (document.activeElement === input) {
+        let start = null;
+        let end = null;
+        try {
+          start = input.selectionStart;
+          end = input.selectionEnd;
+        } catch (_) {
+          // Number inputs have no caret position.
+        }
+        ctx.libraryFocus = { name, value: input.value, start, end };
+      }
+      update({ [name]: input.value.trim(), offset: 0 });
+    }, wait);
+    input.addEventListener("compositionstart", () => { composing = true; });
+    input.addEventListener("compositionend", () => { composing = false; fire(); });
+    input.addEventListener("input", (event) => { if (!event.isComposing && !composing) fire(); });
+    typedInputs[name] = input;
+    return input;
+  }
+  function restoreFocus() {
+    const saved = ctx.libraryFocus;
+    ctx.libraryFocus = null;
+    const input = saved && typedInputs[saved.name];
+    if (!input) return;
+    if (saved.value.trim() === input.value) input.value = saved.value;
+    input.focus();
+    try {
+      if (saved.start != null) input.setSelectionRange(saved.start, saved.end);
+    } catch (_) {
+      // Number inputs have no caret position.
+    }
+  }
+  const search = typed(h("input", { type: "search", placeholder: t("搜索标题 / 任务 / id"), value: filters.search }), "search", 250);
   const controls = h(
     "div",
     { class: "filters panel" },
@@ -145,43 +190,72 @@ export async function renderLibrary(root, ctx, params, still) {
   );
 
   function rangeInput(name, label) {
-    const input = h("input", { type: "number", step: "0.05", class: "range-input", placeholder: label, "aria-label": "v4 " + label, value: filters[name] });
-    input.addEventListener("input", debounce(() => update({ [name]: input.value.trim(), offset: 0 }), 400));
-    return input;
+    return typed(h("input", { type: "number", step: "0.05", class: "range-input", placeholder: label, "aria-label": "v4 " + label, value: filters[name] }), name, 400);
   }
 
   const table = h("div", { class: "trajectory-table panel" });
   const pager = h("div", { class: "pager" });
   clear(root, header, controls, table, pager);
+  restoreFocus();
 
-  batchButton.addEventListener("click", async () => {
+  // A batch Jev job outlives this view (filters and navigation re-render it), so every render
+  // looks for the collection's running job and follows it instead of offering a second one.
+  let following = false;
+  async function followJev(job) {
+    if (following) return;
+    following = true;
     batchButton.disabled = true;
     try {
-      const job = await api.batchJev(ctx.collection || null, 200);
       const finished = await pollJob(job.id, (state) => {
-        status.textContent = t("Jev 分析 {done} / {total}", { done: state.done || 0, total: state.total ?? "…" });
-      });
+        jevStatus.textContent = t("Jev 分析 {done} / {total}", { done: state.done || 0, total: state.total ?? "…" });
+      }, 700, still);
+      if (!finished) return; // the view was left; the next render picks the job up again
       if (finished.status === "failed") throw new Error(finished.error);
-      status.textContent = [
+      jevStatus.textContent = [
         t("Jev 完成 {n} 条 · {tokens} tokens", { n: finished.result.analyzed, tokens: formatCount(finished.result.input_tokens) }),
         finished.result.failed.length ? t("失败 {n}", { n: finished.result.failed.length }) : null,
         finished.result.stopped ? t("连续失败已停止，{n} 条没跑：{error}", { n: finished.result.not_run, error: finished.result.failed[finished.result.failed.length - 1].error }) : null,
       ].filter(Boolean).join(" · ");
       if (still()) load();
     } catch (error) {
-      status.textContent = t("Jev 失败：{error}", { error: error.message });
+      jevStatus.textContent = t("Jev 失败：{error}", { error: error.message });
     } finally {
+      following = false;
       batchButton.disabled = !ctx.jevAvailable;
     }
+  }
+  batchButton.addEventListener("click", async () => {
+    batchButton.disabled = true;
+    let job;
+    try {
+      job = await api.batchJev(ctx.collection || null, 200);
+    } catch (error) {
+      jevStatus.textContent = t("Jev 失败：{error}", { error: error.message });
+      batchButton.disabled = !ctx.jevAvailable;
+      return;
+    }
+    followJev(job);
   });
+  if (ctx.jevAvailable) {
+    runningJob("jev", ctx.collection || "")
+      .then((job) => {
+        if (job && still()) followJev(job);
+      })
+      .catch(() => {
+        // Only a convenience: without it the button just stays as it is.
+      });
+  }
 
-  function update(changes) {
+  function update(changes, { replace = false } = {}) {
     const next = { ...filters, ...changes };
     const query = new URLSearchParams();
     Object.entries(next).forEach(([key, value]) => {
       if (key === "view" ? value !== "episode" : value !== "" && value !== 0 && value !== "imported") query.set(key, value);
     });
-    ctx.navigate("#/library" + (query.toString() ? "?" + query : ""));
+    const hash = "#/library" + (query.toString() ? "?" + query : "");
+    // replace: a correction of the current URL, which Back must not return to.
+    if (replace && location.hash !== hash) location.replace(hash);
+    else ctx.navigate(hash);
   }
 
   async function load() {
@@ -208,6 +282,11 @@ export async function renderLibrary(root, ctx, params, still) {
       limit: PAGE,
     });
     if (!still()) return;
+    // The offset can outlive its collection (the sidebar re-runs the same URL): go to the last page.
+    if (!payload.items.length && payload.total > 0 && filters.offset >= payload.total) {
+      update({ offset: Math.floor((payload.total - 1) / PAGE) * PAGE }, { replace: true });
+      return;
+    }
     status.textContent = filters.view === "episode" ? t("{n} 个 episode", { n: formatCount(payload.total) }) : t("{n} 条", { n: formatCount(payload.total) });
     if (!payload.items.length) {
       clear(table, empty(ctx.collections.length ? t("没有符合筛选的轨迹") : t("左下角导入一个目录或文件开始")));
@@ -311,17 +390,25 @@ function row(item, ctx, nested = false, episode = null) {
     title: t("加入对比"),
     "aria-label": t("加入对比"),
     checked: ctx.compareSelection.includes(item.id),
+    dataset: { id: item.id },
     onclick: (event) => {
       event.stopPropagation();
       event.target.checked = ctx.toggleCompare(item.id);
       ctx.onCompareChange?.();
     },
   });
+  // The dot is the harness verifier's outcome; on a design task the v4 badge next to it is a
+  // different score, so say which one the dot is.
+  const dotTitle = status === "hidden"
+    ? t("盲判模式")
+    : item.v4_label
+      ? t("评测脚本结果：{status}（不是 v4 奖励）", { status: OUTCOME_LABELS[status] || status || "—" })
+      : OUTCOME_LABELS[status];
   const kind = item.extra?.subagent_type ? (item.extra.description ? t("{type}：{description}", { type: item.extra.subagent_type, description: item.extra.description }) : item.extra.subagent_type) : "";
   return h(
     "a",
-    { class: "row" + (nested ? " nested" : ""), href: "#/t/" + encodeURIComponent(item.id), onclick: (event) => { if (event.target === pick) event.preventDefault(); ctx.queueNav = null; } },
-    h("span", { class: "row-pick" }, episode?.toggle || pick, nested ? null : h("span", { class: "dot " + (status === "hidden" ? "muted" : outcomeTone(status)), title: status === "hidden" ? t("盲判模式") : OUTCOME_LABELS[status] })),
+    { class: "row" + (nested ? " nested" : ""), href: "#/t/" + encodeURIComponent(item.id), onclick: () => { ctx.queueNav = null; } },
+    h("span", { class: "row-pick" }, episode?.toggle || pick, nested ? null : h("span", { class: "dot " + (status === "hidden" ? "muted" : outcomeTone(status)), title: dotTitle })),
     h(
       "span",
       { class: "cell-title" },

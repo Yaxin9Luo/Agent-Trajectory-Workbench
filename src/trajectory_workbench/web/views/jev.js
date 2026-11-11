@@ -31,16 +31,33 @@ export function renderJevPanel(slot, reader) {
   slot.replaceChildren(card);
   const status = h("span", { class: "save-status" });
 
-  async function analyze(force = false) {
-    status.textContent = t("Jev 逐步判断中…");
-    try {
-      const result = await api.analyze(run.id, force);
-      reader.onJev(result);
-      status.textContent = "";
-      render();
-    } catch (error) {
-      status.textContent = error.message;
-    }
+  // Every Jev request is billed: one at a time per panel. While one runs, the controls that
+  // start another (marked data-jev-request) are disabled, and a second call gets the running one.
+  let running = null;
+  let findToken = 0;
+  const lock = (on) => card.querySelectorAll("[data-jev-request]").forEach((element) => { element.disabled = on; });
+  function once(work) {
+    if (running) return running;
+    lock(true);
+    running = work().finally(() => {
+      running = null;
+      lock(false);
+    });
+    return running;
+  }
+
+  function analyze(force = false) {
+    return once(async () => {
+      status.textContent = t("Jev 逐步判断中…");
+      try {
+        const result = await api.analyze(run.id, force);
+        reader.onJev(result);
+        status.textContent = "";
+        render();
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
   }
 
   function render() {
@@ -61,7 +78,7 @@ export function renderJevPanel(slot, reader) {
         card,
         head,
         h("p", { class: "hint" }, t("将对 {steps} 个模型步骤各发一次请求（约 {tokens} tokens，按 $0.042/Mtok 约 ${cost}）。", { steps, tokens: formatCount(steps * 3000), cost: (steps * 3000 * 0.042 / 1e6).toFixed(4) })),
-        h("button", { type: "button", class: "primary", onclick: () => analyze(false) }, t("运行 Jev 分析"))
+        h("button", { type: "button", class: "primary", dataset: { jevRequest: "" }, disabled: Boolean(running), onclick: () => analyze(false) }, t("运行 Jev 分析"))
       );
       return;
     }
@@ -182,27 +199,33 @@ export function renderJevPanel(slot, reader) {
       "form",
       {
         class: "find-form",
-        onsubmit: async (event) => {
+        onsubmit: (event) => {
           event.preventDefault();
-          if (!input.value.trim()) return;
+          const query = input.value.trim();
+          if (!query || running) return;
+          // Only the latest search may fill the results.
+          const token = ++findToken;
           clear(results, h("span", { class: "hint" }, t("查找中…")));
-          try {
-            const found = await api.findSteps(run.id, input.value.trim());
-            clear(
-              results,
-              found.matches.length
-                ? found.matches.map((match) =>
-                    h("button", { type: "button", class: "find-hit", onclick: () => reader.jump(match.step) }, h("strong", {}, "#" + match.step + " · " + percent(match.p)), h("span", {}, match.summary.slice(0, 160)))
-                  )
-                : h("span", { class: "hint" }, t("没有匹配的步骤"))
-            );
-          } catch (error) {
-            clear(results, h("span", { class: "hint bad-text" }, error.message));
-          }
+          once(async () => {
+            try {
+              const found = await api.findSteps(run.id, query);
+              if (token !== findToken) return;
+              clear(
+                results,
+                found.matches.length
+                  ? found.matches.map((match) =>
+                      h("button", { type: "button", class: "find-hit", onclick: () => reader.jump(match.step) }, h("strong", {}, "#" + match.step + " · " + percent(match.p)), h("span", {}, match.summary.slice(0, 160)))
+                    )
+                  : h("span", { class: "hint" }, t("没有匹配的步骤"))
+              );
+            } catch (error) {
+              if (token === findToken) clear(results, h("span", { class: "hint bad-text" }, error.message));
+            }
+          });
         },
       },
       input,
-      h("button", { type: "submit" }, t("找"))
+      h("button", { type: "submit", dataset: { jevRequest: "" }, disabled: Boolean(running) }, t("找"))
     );
     parts.push(h("h3", { class: "mini-title" }, t("语义定位")), form, results);
     parts.push(
@@ -211,7 +234,7 @@ export function renderJevPanel(slot, reader) {
         { class: "hint" },
         (jev.steps.model || "jev") + " · " + formatCount((jev.steps.input_tokens || 0) + (task.input_tokens || 0)) + " tokens · " + t("{count} 步", { count: stepSummary.analyzed_steps || 0 }) +
           (jev.steps.errors ? " · " + t("{count} 步请求失败", { count: jev.steps.errors }) : "") + " · ",
-        h("button", { type: "button", class: "link-button", onclick: () => analyze(true) }, t("重新分析"))
+        h("button", { type: "button", class: "link-button", dataset: { jevRequest: "" }, disabled: Boolean(running), onclick: () => analyze(true) }, t("重新分析"))
       )
     );
     clear(card, parts);

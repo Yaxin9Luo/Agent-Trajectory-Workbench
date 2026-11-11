@@ -37,8 +37,15 @@ export function setLanguage(lang, { store = true } = {}) {
   }
 }
 
+// {name} is replaced by a parameter. {name|one|many} picks a word by that parameter's count:
+// "{n} {n|step|steps}" gives "1 step" and "3 steps". English tables use it; Chinese needs none.
 function fill(template, params) {
-  return params ? template.replace(/\{(\w+)\}/g, (whole, name) => (name in params ? String(params[name]) : whole)) : template;
+  if (!params) return template;
+  return template.replace(/\{(\w+)(?:\|([^|{}]*)\|([^{}]*))?\}/g, (whole, name, one, many) => {
+    if (!(name in params)) return whole;
+    if (one === undefined) return String(params[name]);
+    return String(params[name]).trim() === "1" ? one : many;
+  });
 }
 
 /** Interface text. `source` is the Chinese text, with {name} placeholders filled from `params`. */

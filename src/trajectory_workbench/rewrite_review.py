@@ -23,9 +23,15 @@ from trajectory_workbench.adapters.common import COMPACTION_PREFIX, COMPACTION_R
 
 # -- word diff ------------------------------------------------------------------------------
 
-# Whitespace runs, ASCII words, then any other character on its own: Chinese has no spaces,
-# so one character is the smallest change a reader notices.
-TOKEN = re.compile(r"\s+|[A-Za-z0-9_]+|[^\sA-Za-z0-9_]")
+# ASCII words, then any other character on its own (Chinese has no spaces, so one character
+# is the smallest change a reader notices), each with the whitespace that follows it.
+# Whitespace is not a token of its own: in English text it would be every second token, all
+# equal, which makes the matcher's cost grow with the square of the length and makes any
+# two texts look half alike.
+TOKEN = re.compile(r"[A-Za-z0-9_]+\s*|[^\sA-Za-z0-9_]\s*|\s+")
+# Two token lists longer than this (product of lengths) are not matched token by token:
+# the matcher is quadratic and this runs on the request thread.
+TOKEN_DIFF_WORK = 16_000_000
 # Changed line blocks longer than this are shown as replaced whole, not diffed word by word.
 TOKEN_DIFF_CHARS = 40_000
 # Tool inputs and results longer than this are only compared, not diffed.
@@ -60,6 +66,16 @@ def word_diff(before: str, after: str) -> list[list[str]]:
 WORD_DIFF_MIN_SHARED = 0.5
 
 
+def _replaced(removed: str, added: str) -> list[list[str]]:
+    """Segments for text replaced by other text. Tokens carry their trailing whitespace;
+    whitespace that ends both sides did not change and is reported as unchanged."""
+    shared_space = ""
+    while removed and added and removed[-1] == added[-1] and removed[-1].isspace():
+        shared_space = removed[-1] + shared_space
+        removed, added = removed[:-1], added[:-1]
+    return [segment for segment in (["-", removed], ["+", added], ["=", shared_space]) if segment[1]]
+
+
 def _token_diff(a: str, b: str) -> list[list[str]]:
     ta, tb = TOKEN.findall(a), TOKEN.findall(b)
     head = 0
@@ -70,20 +86,22 @@ def _token_diff(a: str, b: str) -> list[list[str]]:
         tail += 1
     out: list[list[str]] = [["=", "".join(ta[:head])]] if head else []
     middle_a, middle_b = ta[head : len(ta) - tail], tb[head : len(tb) - tail]
+    if len(middle_a) * len(middle_b) > TOKEN_DIFF_WORK:
+        out.extend(_replaced("".join(middle_a), "".join(middle_b)))
+        if tail:
+            out.append(["=", "".join(ta[len(ta) - tail :])])
+        return out
     opcodes = difflib.SequenceMatcher(None, middle_a, middle_b, autojunk=False).get_opcodes()
     shared = sum(len("".join(middle_a[i1:i2])) for tag, i1, i2, _, _ in opcodes if tag == "equal")
     longest = max(len("".join(middle_a)), len("".join(middle_b)))
     if longest and shared < WORD_DIFF_MIN_SHARED * longest:
-        out.extend(segment for segment in (["-", "".join(middle_a)], ["+", "".join(middle_b)]) if segment[1])
+        out.extend(_replaced("".join(middle_a), "".join(middle_b)))
     else:
         for tag, i1, i2, j1, j2 in opcodes:
             if tag == "equal":
                 out.append(["=", "".join(middle_a[i1:i2])])
                 continue
-            if i2 > i1:
-                out.append(["-", "".join(middle_a[i1:i2])])
-            if j2 > j1:
-                out.append(["+", "".join(middle_b[j1:j2])])
+            out.extend(_replaced("".join(middle_a[i1:i2]), "".join(middle_b[j1:j2])))
     if tail:
         out.append(["=", "".join(ta[len(ta) - tail :])])
     return out

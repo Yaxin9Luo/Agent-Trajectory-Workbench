@@ -115,16 +115,15 @@ def main() -> None:
             "ready": True if args.ready_only else None,
             "roles": [item for item in (args.roles or "").split(",") if item] or None,
         }
-        result = service.export({k: v for k, v in filters.items() if v is not None}, args.out.expanduser().resolve(), args.mode)
-        result = {key: value for key, value in result.items() if key != "card"} | {"card": str(args.out / "data_card.md")}
+        target = args.out.expanduser().resolve()
+        result = service.export({k: v for k, v in filters.items() if v is not None}, target, args.mode)
+        result = {key: value for key, value in result.items() if key != "card"} | {"card": str(target / "data_card.md")}
     elif args.command == "remove-collection":
         names = {item["collection"] for item in service.store.collections()}
         if args.collection not in names:
             raise SystemExit(f"no collection named {args.collection!r}; have: {sorted(names)}")
         if not args.yes:
-            total, _ = service.store.query_trajectories(collection=args.collection, limit=1)
-            reviews = sum(1 for item in service.store.reviews(args.collection))
-            result = {"would_remove": {"trajectories": total, "reviews": reviews}, "hint": "add --yes to delete"}
+            result = {"would_remove": service.store.collection_contents(args.collection), "hint": "add --yes to delete"}
         else:
             result = {"removed": service.store.remove_collection(args.collection)}
     elif args.command == "export-jev":
@@ -148,7 +147,7 @@ def main() -> None:
         sys.stdout.write(service.export_reviews(args.collection))
         return
     else:
-        result = service.list_collections()
+        result = service.list_collections(sources=True)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

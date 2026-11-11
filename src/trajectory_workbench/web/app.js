@@ -1,5 +1,5 @@
 import { api, pollJob } from "./api.js";
-import { clear, h, persist, remember } from "./dom.js";
+import { clear, empty, h, persist, remember } from "./dom.js";
 import { LANGUAGES, language, setLanguage, t, tb } from "./i18n.mjs";
 import { formatCount } from "./presentation.mjs";
 import { renderLibrary } from "./views/library.js";
@@ -17,7 +17,6 @@ export const ctx = {
   blind: remember("blind", false),
   taxonomy: null,
   jevAvailable: false,
-  reviewer: "",
   queueNav: null,
   compareSelection: remember("compare", []),
   toggleCompare,
@@ -83,7 +82,6 @@ async function refreshCollections() {
   const payload = await api.collections();
   ctx.collections = payload.collections;
   ctx.jevAvailable = payload.jev_available;
-  ctx.reviewer = payload.reviewer;
   if (ctx.collection && !ctx.collections.some((item) => item.collection === ctx.collection)) {
     ctx.collection = "";
     persist("collection", "");
@@ -106,6 +104,8 @@ function renderCollections() {
             {
               type: "button",
               class: "run-item" + (item.collection === ctx.collection ? " active" : ""),
+              // The name may be cut off by the sidebar width.
+              title: item.label || item.collection,
               onclick: () => {
                 ctx.collection = item.collection;
                 persist("collection", item.collection);
@@ -187,8 +187,13 @@ elements.importForm.addEventListener("submit", async (event) => {
 });
 
 elements.refresh.addEventListener("click", async () => {
-  await refreshCollections();
-  route();
+  try {
+    await refreshCollections();
+    route();
+  } catch (error) {
+    elements.importStatus.classList.add("error");
+    elements.importStatus.textContent = error.message;
+  }
 });
 /** The shell in index.html is written in Chinese; put it in the chosen language. */
 function localizeShell() {
@@ -237,6 +242,8 @@ document.addEventListener("keydown", (event) => {
 });
 window.addEventListener("hashchange", route);
 renderCompareCount();
+// Taxonomy and collections load before the first view: show that something is coming.
+clear(elements.view, empty(t("读取…")));
 
 (async () => {
   try {

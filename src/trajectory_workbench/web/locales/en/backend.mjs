@@ -5,8 +5,8 @@
 export default {
   // signals.py FLAG_LABELS
   "原地打转": "Stuck in a loop",
-  "报错后原样重试": "Same retry after an error",
-  "改完未验证": "Not verified after the change",
+  "报错后原样重试": "Blind retry after an error",
+  "改完未验证": "Unverified change",
   "改动测试/评分文件": "Edited test or grading files",
   "用到 harness 组件": "Uses harness components",
   "基础设施报错": "Infrastructure error",
@@ -34,7 +34,7 @@ export default {
   "工具": "Tool",
   "子代理类型": "Subagent type",
   "指令": "Instruction",
-  "harness 文件": "harness file",
+  "harness 文件": "Harness file",
   "调用": "calls",
   "参数里": "in arguments",
   "提到": "mentions",
@@ -44,7 +44,7 @@ export default {
   "发现问题": "Notices a problem",
   "忽略报错": "Ignores an error",
   "误读工具返回": "Misreads a tool result",
-  "思行不一": "Reasoning and action differ",
+  "思行不一": "Thought–action mismatch",
   "宣称完成": "Claims done",
   "空转/道歉": "Filler / apology",
   "违反题目约束": "Violates a task constraint",
@@ -66,7 +66,7 @@ export default {
   "字面完成未达意图": "Letter, not spirit",
   "格式对内容错": "Right format, wrong content",
   "夸大完成度": "Overclaims completion",
-  "偷看答案": "Reads the answers",
+  "偷看答案": "Peeks at the answers",
   "意识到在被测": "Aware of being tested",
   "理解错题": "Misreads the task",
   "错误前提": "False premise",
@@ -83,7 +83,7 @@ export default {
   "预算没管好": "Poor budget management",
   "冗余/自我确认": "Verbose / self-confirmation",
   "风格漂移": "Style drift",
-  "harness 痕迹": "harness leak",
+  "harness 痕迹": "Harness leak",
   "环境故障": "Environment failure",
   "题目歧义": "Ambiguous task",
   "评分器太松": "Grader too lenient",
@@ -102,7 +102,7 @@ export default {
   "环境": "Environment",
   "无需干预": "No intervention needed",
   "模型": "Model",
-  "harness（指令/Hook/Skill/MCP 设计）": "harness (instruction / Hook / Skill / MCP design)",
+  "harness（指令/Hook/Skill/MCP 设计）": "Harness (instruction / Hook / Skill / MCP design)",
   "环境/基础设施": "Environment / infrastructure",
   "题目": "Task",
   "评分器": "Grader",
@@ -115,7 +115,7 @@ export default {
   // practice.py queue reasons
   "同一道题的成功样本": "The passing sample of the same task",
   "同一道题的失败样本": "The failing sample of the same task",
-  "Jev：宣称完成前没有验证": "Jev: claimed done before verifying",
+  "Jev：宣称完成前没有验证": "Jev: claims done without verifying",
   "随机抽样：防止筛选带偏": "Random sample: guards against selection bias",
 
   // rewrite_review.py error types, miss types, gate reasons
@@ -127,7 +127,7 @@ export default {
   "其他": "Other",
   "文字里的归因残留": "Leftover attribution in the text",
   "工具参数里的依赖": "Dependency in tool arguments",
-  "压缩摘要和相邻段落不同步": "The compaction summary and the neighbouring segment are out of sync",
+  "压缩摘要和相邻段落不同步": "The compaction summary and the neighboring segment are out of sync",
 
   // service.py
   "整理 episode": "Grouping episodes",
@@ -135,52 +135,56 @@ export default {
   "（随摘要同步）": "(synced with the summary)",
   "（流水线未记录）": "(not recorded by the pipeline)",
   "（结构变化）": "(structural change)",
+  "原始集合里没有这条样本": "this sample is not in the original collection",
 };
 
 // [pattern, render(match, tb)]: sentences with numbers or names. `tb` translates a nested part.
+// A pattern is a function, so it picks singular or plural itself.
+const plural = (n, one, many) => (String(n).trim() === "1" ? one : many);
+
 export const BACKEND_PATTERNS = [
   // signals.py
-  [/^同一调用连续 (\d+) 次$/, (m) => `Same call ${m[1]} times in a row`],
-  [/^(\d+) 次报错后以相同参数重试$/, (m) => `${m[1]} retries with the same arguments after an error`],
+  [/^同一调用连续 (\d+) 次$/, (m) => `Same call ${m[1]} ${plural(m[1], "time", "times")} in a row`],
+  [/^(\d+) 次报错后以相同参数重试$/, (m) => `${m[1]} ${plural(m[1], "retry", "retries")} with the same arguments after an error`],
   [/^改动了已有的 (.+)$/, (m) => `Changed existing ${m[1]}`],
   [/^重复段落 (\d+) · 道歉\/自我确认 (\d+)$/, (m) => `Repeated paragraphs ${m[1]} · apology / self-confirmation ${m[2]}`],
-  [/^(\d+)\/(\d+) 段正文换成另一种语言$/, (m) => `${m[1]}/${m[2]} text segments switch to another language`],
-  [/^(\d+) 处输出像环境\/服务故障$/, (m) => `${m[1]} outputs look like an environment or service failure`],
-  [/^子代理有 (\d+) 次写操作$/, (m) => `The subagent made ${m[1]} writes`],
+  [/^(\d+)\/(\d+) 段正文换成另一种语言$/, (m) => `${m[1]} of ${m[2]} text ${plural(m[2], "segment", "segments")} ${plural(m[1], "switches", "switch")} to another language`],
+  [/^(\d+) 处输出像环境\/服务故障$/, (m) => `${m[1]} ${plural(m[1], "output looks", "outputs look")} like an environment or service failure`],
+  [/^子代理有 (\d+) 次写操作$/, (m) => `The subagent made ${m[1]} ${plural(m[1], "write", "writes")}`],
   [/^命令查看了 (.+)$/, (m) => `a command looked at ${m[1]}`],
   [/^命令 (.+)$/, (m) => `command ${m[1]}`],
   [/^工具 (\S+)$/, (m) => `tool ${m[1]}`],
   // readiness.py
   [/^约 ([\d,]+) tokens，超过 ([\d,]+)$/, (m) => `About ${m[1]} tokens, over ${m[2]}`],
-  [/^(\d+) 个工具调用没有返回$/, (m) => `${m[1]} tool calls have no result`],
-  [/^(\d+) 条工具返回找不到对应调用$/, (m) => `${m[1]} tool results have no matching call`],
-  [/^(\d+) 个工具参数不是合法 JSON$/, (m) => `${m[1]} tool arguments are not valid JSON`],
-  [/^(\d+) 步引用的图片文件不存在$/, (m) => `${m[1]} steps refer to image files that do not exist`],
+  [/^(\d+) 个工具调用没有返回$/, (m) => `${m[1]} tool ${plural(m[1], "call has", "calls have")} no result`],
+  [/^(\d+) 条工具返回找不到对应调用$/, (m) => `${m[1]} tool ${plural(m[1], "result has", "results have")} no matching call`],
+  [/^(\d+) 个工具参数不是合法 JSON$/, (m) => `${m[1]} tool ${plural(m[1], "argument is", "arguments are")} not valid JSON`],
+  [/^(\d+) 步引用的图片文件不存在$/, (m) => `${m[1]} ${plural(m[1], "step refers", "steps refer")} to image files that do not exist`],
   [/^训练 token 里用到 harness 组件：(.+)$/s, (m, tb) => `Trained tokens use harness components: ${tb(m[1])}`],
-  [/^(\d+) 个空的模型回合$/, (m) => `${m[1]} empty model turns`],
+  [/^(\d+) 个空的模型回合$/, (m) => `${m[1]} empty model ${plural(m[1], "turn", "turns")}`],
   [/^训练 token 只占 ([\d.]+%)$/, (m) => `Trained tokens are only ${m[1]}`],
   // harness.py describe(): "工具 name（调用 3 步 · 提到 1 步）、… 等 7 个"
   [/^(.+?) 等 (\d+) 个$/s, (m, tb) => `${tb(m[1])} and others, ${m[2]} in total`],
   [/^(MCP|工具|Skill|子代理类型|Hook|指令|harness 文件) (.+?)（([^（）]*)）(?:、(.+))?$/s, (m, tb) => {
     const counts = m[3].split(" · ").map((part) => {
       const piece = /^(\S+) (\d+) 步$/.exec(part);
-      return piece ? `${tb(piece[1])} ${piece[2]} steps` : part;
+      return piece ? `${tb(piece[1])}: ${piece[2]} ${plural(piece[2], "step", "steps")}` : part;
     });
     const head = `${tb(m[1])} ${m[2]} (${counts.join(" · ")})`;
     return m[4] ? `${head}, ${tb(m[4])}` : head;
   }],
   // practice.py
   [/^同题不同 checkpoint：(.+)$/, (m) => `Same task, different checkpoints: ${m[1]}`],
-  [/^评分通过，但 (.+)$/s, (m, tb) => `Passed grading, but ${m[1].split("；").map(tb).join("; ")}`],
-  [/^步数 (\S+)，成功样本 P(10|90) 为 (\S+)$/, (m) => `${m[1]} steps; P${m[2]} of passing samples is ${m[3]}`],
+  [/^评分通过，但 (.+)$/s, (m, tb) => `Passed grading, but: ${m[1].split("；").map(tb).join(" · ")}`],
+  [/^步数 (\S+)，成功样本 P(10|90) 为 (\S+)$/, (m) => `${m[1]} ${plural(m[1], "step", "steps")} (passing-sample P${m[2]}: ${m[3]})`],
   [/^失败类型：(.+)（本集合 (\d+)\+ 条）$/, (m, tb) => `Failure type: ${tb(m[1])} (${m[2]}+ in this collection)`],
   // rewrite_review.py gate()
   [/^流水线状态：(.+?)(?:（(.+)）)?$/s, (m) => `Pipeline status: ${m[1]}` + (m[2] ? ` (${m[2]})` : "")],
-  [/^(\d+) 处改动判错$/, (m) => `${m[1]} changes judged wrong`],
-  [/^(\d+) 处漏改$/, (m) => `${m[1]} missed changes`],
-  [/^(\d+) 个残留确认是漏改$/, (m) => `${m[1]} residue items confirmed as missed changes`],
-  [/^(\d+) 个残留还没处理$/, (m) => `${m[1]} residue items not handled yet`],
-  [/^(\d+) 处带警告（(.+)）的改动还没判定$/, (m) => `${m[1]} changes with a warning (${m[2].split("、").join(", ")}) not judged yet`],
-  [/^人工标为(可进|不进)(?:：(.+))?$/s, (m) => `Marked by a person as ${m[1] === "可进" ? "include" : "exclude"}` + (m[2] ? `: ${m[2]}` : "")],
-  [/^无法比较：(.+)$/s, (m) => `Cannot compare: ${m[1]}`],
+  [/^(\d+) 处改动判错$/, (m) => `${m[1]} ${plural(m[1], "change", "changes")} judged wrong`],
+  [/^(\d+) 处漏改$/, (m) => `${m[1]} missed ${plural(m[1], "change", "changes")}`],
+  [/^(\d+) 个残留确认是漏改$/, (m) => `${m[1]} residue ${plural(m[1], "item", "items")} confirmed as missed changes`],
+  [/^(\d+) 个残留还没处理$/, (m) => `${m[1]} residue ${plural(m[1], "item", "items")} not handled yet`],
+  [/^(\d+) 处带警告（(.+)）的改动还没判定$/, (m) => `${m[1]} ${plural(m[1], "change", "changes")} with a warning (${m[2].split("、").join(", ")}) not judged yet`],
+  [/^人工标为(可进|不进)(?:：(.+))?$/s, (m) => `Human override: ${m[1] === "可进" ? "include" : "exclude"}` + (m[2] ? ` — ${m[2]}` : "")],
+  [/^无法比较：(.+)$/s, (m, tb) => `Cannot compare: ${tb(m[1])}`],
 ];

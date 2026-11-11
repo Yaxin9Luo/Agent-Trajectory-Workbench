@@ -84,6 +84,15 @@ class ExtractionTest(unittest.TestCase):
         task = "# Title\nMake a 5 slide deck. Keep the logo.\n\n## Task attachments\n- ` inputs/a.png `\n- Use serif type"
         self.assertEqual(requirement_candidates(task), ["Make a 5 slide deck.", "Keep the logo.", "Use serif type"])
 
+    def test_candidates_keep_short_chinese_sentences_and_abbreviations(self) -> None:
+        # A CJK character carries about as much as 2.5 Latin ones; "好的。" is still too short.
+        self.assertEqual(requirement_candidates("好的。必须使用红色标题。"), ["必须使用红色标题。"])
+        self.assertEqual(requirement_candidates("1、使用红色标题\n2、 保留页脚"), ["使用红色标题", "保留页脚"])
+        self.assertEqual(
+            requirement_candidates("Use a serif face, e.g. Georgia, i.e. nothing rounded. Keep the logo. Thanks."),
+            ["Use a serif face, e.g. Georgia, i.e. nothing rounded.", "Keep the logo."],
+        )
+
     def test_plan_ledger_tracks_todos_tasks_and_plans(self) -> None:
         def build(b):
             b.add_message("user", text="go")

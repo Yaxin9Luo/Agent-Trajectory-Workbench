@@ -18,5 +18,5 @@ export default {
   "、": ", ",
   "（没有 {viewport} 的截图）": "(no {viewport} screenshot)",
   "第 {page} 页": "Slide {page}",
-  "逐页截图 1920x1080 · {count} 页": "Per-slide screenshots 1920x1080 · {count} slides",
+  "逐页截图 1920x1080 · {count} 页": "Per-slide screenshots 1920x1080 · {count} {count|slide|slides}",
 };

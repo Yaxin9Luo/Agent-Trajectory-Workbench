@@ -8,7 +8,8 @@ import { t } from "../i18n.mjs";
  * second collection (two checkpoints, two harness versions).
  */
 export async function renderExplore(root, ctx, params, still) {
-  const other = params.get("b") || "";
+  // A `b` equal to the sidebar's collection (picked there after the comparison) would compare it with itself.
+  const other = params.get("b") && params.get("b") !== ctx.collection ? params.get("b") : "";
   const names = [ctx.collection || "", other].filter((name, index) => index === 0 || name);
   const picker = h(
     "select",
@@ -122,9 +123,18 @@ export async function renderExplore(root, ctx, params, still) {
           const button = h("button", { type: "button", class: "secondary" }, t("重新索引 {name}", { name: item.collection }));
           button.addEventListener("click", async () => {
             button.disabled = true;
-            const job = await api.reindex(item.collection);
-            const finished = await pollJob(job.id, (state) => { button.textContent = t("重新索引中 {done} / {total}", { done: state.done || 0, total: state.total ?? "…" }); });
-            button.textContent = finished.status === "done" ? t("完成，刷新页面") : t("失败：{error}", { error: finished.error });
+            let done = false;
+            try {
+              const job = await api.reindex(item.collection);
+              const finished = await pollJob(job.id, (state) => { button.textContent = t("重新索引中 {done} / {total}", { done: state.done || 0, total: state.total ?? "…" }); });
+              done = finished.status === "done";
+              button.textContent = done ? t("完成，刷新页面") : t("失败：{error}", { error: finished.error });
+            } catch (error) {
+              button.textContent = t("失败：{error}", { error: error.message });
+            } finally {
+              // Finished work needs a refresh, not a second run; a failure can be retried.
+              button.disabled = done;
+            }
           });
           return button;
         })

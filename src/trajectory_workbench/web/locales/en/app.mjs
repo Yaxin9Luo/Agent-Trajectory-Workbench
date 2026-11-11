@@ -1,7 +1,7 @@
 // English for the interface text in app.js and index.html. Key: the Chinese source text.
 export default {
   // index.html
-  "查看 · 分析 · 对比 agent 轨迹": "View · analyse · compare agent trajectories",
+  "查看 · 分析 · 对比 agent 轨迹": "View · analyze · compare agent trajectories",
   "主导航": "Main navigation",
   "轨迹库": "Library",
   "对比": "Compare",
@@ -11,7 +11,7 @@ export default {
   "统计": "Stats",
   "每日练习": "Daily practice",
   "盲判模式": "Blind mode",
-  "练习用：先猜结果再看评分": "For practice: guess the outcome before you see the score",
+  "练习用：先猜结果再看评分": "For practice: guess the outcome before you see the grade",
   "界面语言": "Interface language",
   "刷新": "Refresh",
   "集合": "Collections",
@@ -24,15 +24,16 @@ export default {
   "图片大图": "Full-size image",
   "关闭图片": "Close image",
   // app.js
-  "读取失败": "Could not load",
+  "读取失败": "Load failed",
+  "读取…": "Loading…",
   "全部集合": "All collections",
-  "{n} 个 episode": "{n} episodes",
-  "（{n} 条）": " ({n} trajectories)",
+  "{n} 个 episode": "{n} {n|episode|episodes}",
+  "（{n} 条）": " ({n} {n|trajectory|trajectories})",
   " · 已读 {n}": " · {n} read",
   " · 过 {pass} / 败 {fail}": " · {pass} pass / {fail} fail",
   "还没有导入轨迹": "No trajectories imported yet",
   "发现并索引轨迹…": "Finding and indexing trajectories…",
   "已索引 {n} 条 · {message}": "{n} indexed · {message}",
-  "完成：{n} 条轨迹，来自 {sources} 个来源": "Done: {n} trajectories from {sources} sources",
-  "；{n} 个来源读取失败": "; {n} sources could not be read",
+  "完成：{n} 条轨迹，来自 {sources} 个来源": "Done: {n} {n|trajectory|trajectories} from {sources} {sources|source|sources}",
+  "；{n} 个来源读取失败": "; {n} {n|source|sources} failed to load",
 };

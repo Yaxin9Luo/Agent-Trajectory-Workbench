@@ -48,6 +48,10 @@ test("t() falls back to the Chinese source and fills placeholders in both langua
     assert.equal(t("（{n} 条）", { n: 3 }), " (3 trajectories)");
     assert.equal(t("没有翻译的文本 {n}", { n: 1 }), "没有翻译的文本 1");
     assert.equal(t("{missing} 保留"), "{missing} 保留");
+    assert.equal(t("（{n} 条）", { n: 1 }), " (1 trajectory)");
+    assert.equal(t("（{n} 条）", { n: "1,200" }), " (1,200 trajectories)");
+    assert.equal(t("{count} 步", { count: 1 }), "1 step");
+    assert.equal(t("有 {n} 条轨迹是旧版本导入的，还没有工具统计。", { n: 1 }), "1 trajectory was imported by an older version and has no tool stats yet.");
   } finally {
     setLanguage("zh", { store: false });
   }
@@ -62,7 +66,8 @@ test("every Chinese literal in the interface code goes through t()", () => {
 });
 
 test("every t() text has an English entry with the same placeholders", () => {
-  const placeholders = (text) => [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
+  // Each name once: English may use a parameter again to pick a singular or plural word.
+  const placeholders = (text) => [...new Set([...text.matchAll(/\{(\w+)(?:\|[^{}]*)?\}/g)].map((match) => match[1]))].sort();
   for (const name of SOURCES) {
     for (const key of translatedKeys(read(name))) {
       assert.ok(Object.hasOwn(en, key), name + ": no English for " + JSON.stringify(key));
@@ -116,24 +121,30 @@ test("tb() translates server sentences that carry numbers and names", () => {
       "2 次报错后以相同参数重试": "2 retries with the same arguments after an error",
       "改动了已有的 tests/test_a.py, grade.py": "Changed existing tests/test_a.py, grade.py",
       "重复段落 3 · 道歉/自我确认 1": "Repeated paragraphs 3 · apology / self-confirmation 1",
-      "2/9 段正文换成另一种语言": "2/9 text segments switch to another language",
+      "2/9 段正文换成另一种语言": "2 of 9 text segments switch to another language",
       "命令 pytest -q": "command pytest -q",
       "命令查看了 parse.py": "a command looked at parse.py",
       "工具 mcp__browser__screenshot": "tool mcp__browser__screenshot",
       "约 300,000 tokens，超过 256,000": "About 300,000 tokens, over 256,000",
       "3 个工具调用没有返回": "3 tool calls have no result",
       "训练 token 只占 4.2%": "Trained tokens are only 4.2%",
-      "工具 slides_workbench（调用 3 步 · 提到 1 步）": "Tool slides_workbench (calls 3 steps · mentions 1 steps)",
+      "工具 slides_workbench（调用 3 步 · 提到 1 步）": "Tool slides_workbench (calls: 3 steps · mentions: 1 step)",
       "训练 token 里用到 harness 组件：MCP slides（调用 2 步）、Skill deck-review（提到 1 步） 等 7 个":
-        "Trained tokens use harness components: MCP slides (calls 2 steps), Skill deck-review (mentions 1 steps) and others, 7 in total",
+        "Trained tokens use harness components: MCP slides (calls: 2 steps), Skill deck-review (mentions: 1 step) and others, 7 in total",
       "评分通过，但 步数 4，成功样本 P10 为 5；改完未验证；Jev：宣称完成前没有验证":
-        "Passed grading, but 4 steps; P10 of passing samples is 5; Not verified after the change; Jev: claimed done before verifying",
+        "Passed grading, but: 4 steps (passing-sample P10: 5) · Unverified change · Jev: claims done without verifying",
       "失败类型：agent（本集合 12+ 条）": "Failure type: agent (12+ in this collection)",
       "同题不同 checkpoint：ckpt-100 vs ckpt-500": "Same task, different checkpoints: ckpt-100 vs ckpt-500",
       "流水线状态：failed（timeout）": "Pipeline status: failed (timeout)",
       "2 处改动判错": "2 changes judged wrong",
       "3 处带警告（adds_status_words、drops_negation）的改动还没判定": "3 changes with a warning (adds_status_words, drops_negation) not judged yet",
-      "人工标为不进：归因没删干净": "Marked by a person as exclude: 归因没删干净",
+      "人工标为不进：归因没删干净": "Human override: exclude — 归因没删干净",
+      // One against many: the patterns pick the singular themselves.
+      "1 个工具调用没有返回": "1 tool call has no result",
+      "1 次报错后以相同参数重试": "1 retry with the same arguments after an error",
+      "1 处改动判错": "1 change judged wrong",
+      "1/1 段正文换成另一种语言": "1 of 1 text segment switches to another language",
+      "无法比较：原始集合里没有这条样本": "Cannot compare: this sample is not in the original collection",
     };
     for (const [source, expected] of Object.entries(cases)) assert.equal(tb(source), expected);
     // Unknown text, and anything that is not text, comes back as it was.

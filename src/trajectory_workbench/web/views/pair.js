@@ -15,11 +15,15 @@ import { t, tb } from "../i18n.mjs";
 /** Compare landing page: what is selected, and how to pick. */
 export async function renderCompareHome(root, ctx) {
   const selection = ctx.compareSelection;
-  if (selection.length === 2) {
+  const picked = await Promise.all(selection.map((id) => api.trajectory(id).catch(() => null)));
+  // app.js gives this view no `still`; a newer route has replaced `root` if the user moved on.
+  if (!root.isConnected) return;
+  // A picked trajectory that no longer loads (re-imported, deleted) would make the pair page an
+  // error every time; stay here so it can be removed.
+  if (selection.length === 2 && picked.every(Boolean)) {
     ctx.navigate("#/pair/" + selection.map(encodeURIComponent).join("/"));
     return;
   }
-  const picked = await Promise.all(selection.map((id) => api.trajectory(id).catch(() => null)));
   clear(
     root,
     h("header", { class: "page-head" }, h("div", {}, h("span", { class: "eyebrow" }, t("对比")), h("h1", {}, t("并排对比两条轨迹")))),
@@ -40,9 +44,14 @@ export async function renderCompareHome(root, ctx) {
       "section",
       { class: "panel compare-card" },
       h("h2", { class: "mini-title" }, t("已选 {n} / 2", { n: selection.length })),
-      picked.filter(Boolean).length
-        ? picked.filter(Boolean).map((run) =>
-            h("div", { class: "related-row" }, h("a", { href: "#/t/" + encodeURIComponent(run.id) }, run.title), h("button", { type: "button", class: "link-button", onclick: () => { ctx.toggleCompare(run.id); ctx.navigate("#/compare"); } }, t("移除")))
+      selection.length
+        ? selection.map((id, index) =>
+            h(
+              "div",
+              { class: "related-row" },
+              picked[index] ? h("a", { href: "#/t/" + encodeURIComponent(id) }, picked[index].title) : h("span", { class: "muted" }, t("{id}（读不到，可能已被删除）", { id })),
+              h("button", { type: "button", class: "link-button", onclick: () => { ctx.toggleCompare(id); ctx.navigate("#/compare"); } }, t("移除"))
+            )
           )
         : empty(t("还没有选择")),
       h("a", { class: "link-button", href: "#/library" }, t("去轨迹库挑选 →"))

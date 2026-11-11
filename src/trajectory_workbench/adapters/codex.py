@@ -52,7 +52,7 @@ def is_injected_context(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
-    if stripped.startswith(INJECTED_USER_PREFIXES[:1]) or stripped.startswith("<"):
+    if stripped.startswith("<"):
         rest = TAG_BLOCK.sub("", stripped)
         rest = re.sub(r"(?m)^# AGENTS\.md instructions.*$", "", rest)
         return not rest.strip() or stripped.startswith(INJECTED_USER_PREFIXES)

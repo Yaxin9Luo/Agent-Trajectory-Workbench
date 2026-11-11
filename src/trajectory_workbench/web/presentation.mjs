@@ -19,7 +19,8 @@ export function formatBytes(bytes) {
 export function formatCount(value) {
   if (value == null || !Number.isFinite(Number(value))) return "—";
   const number = Number(value);
-  if (number >= 1e6) return (number / 1e6).toFixed(1) + "M";
+  // 999,999 would round to "1000k": switch to M where k would show four digits.
+  if (number >= 1e6 || Math.round(number / 1e3) >= 1000) return (number / 1e6).toFixed(1) + "M";
   if (number >= 1e4) return (number / 1e3).toFixed(0) + "k";
   return number.toLocaleString();
 }
@@ -222,12 +223,15 @@ function sliceTail(text, count) {
   return text.slice(code >= 0xdc00 && code <= 0xdfff ? start + 1 : start);
 }
 
+// Characters a text may have before foldText folds it (also the budget for an edit's line diff).
+const FOLD_MAX_CHARS = 12000;
+
 /**
  * Head and tail of a long text as strings. Folds by lines first; when the kept part is still
  * too long (one huge line: minified JSON, base64, one-line HTML) it folds by characters.
  * `unit` says what `hidden` counts: "行" or "字".
  */
-export function foldText(text, { head = 40, tail = 20, maxChars = 12000, headChars = 6000, tailChars = 3000 } = {}) {
+export function foldText(text, { head = 40, tail = 20, maxChars = FOLD_MAX_CHARS, headChars = 6000, tailChars = 3000 } = {}) {
   const value = String(text ?? "");
   const lines = foldLines(value, head, tail);
   const headText = lines.head.join("\n");
@@ -280,8 +284,10 @@ export function editView(input) {
  * Returns null when either side is too long to compare line by line.
  */
 export function lineDiff(before, after, limit = 800) {
-  const a = String(before ?? "").split("\n");
-  const b = String(after ?? "").split("\n");
+  // An empty text has no lines (split would give one empty line, shown as a removed blank line).
+  const lines = (text) => (String(text ?? "") === "" ? [] : String(text).split("\n"));
+  const a = lines(before);
+  const b = lines(after);
   if (a.length > limit || b.length > limit) return null;
   const table = Array.from({ length: a.length + 1 }, () => new Uint16Array(b.length + 1));
   for (let i = a.length - 1; i >= 0; i -= 1) {
@@ -310,9 +316,18 @@ export function lineDiff(before, after, limit = 800) {
   return out;
 }
 
+/**
+ * Line diff of an edit's old and new text, or null when the two together are longer than foldText's
+ * character budget (one huge line would otherwise be shown in full) or have too many lines.
+ */
+export function editDiff(before, after) {
+  if (String(before ?? "").length + String(after ?? "").length > FOLD_MAX_CHARS) return null;
+  return lineDiff(before, after);
+}
+
 // ---- v4 reward ------------------------------------------------------------------------
 
-export const V4_LAYERS = ["L0", "L1", "L2", "L3"];
+const V4_LAYERS = ["L0", "L1", "L2", "L3"];
 
 /** Viewport "1920x1080" → [1920, 1080]; anything else falls back to 1920x1080. */
 export function parseViewport(text) {

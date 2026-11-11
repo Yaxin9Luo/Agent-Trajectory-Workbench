@@ -1,17 +1,16 @@
-import { api, pollJob } from "../api.js";
+import { api, pollJob, runningJob } from "../api.js";
 import { clear, empty, h } from "../dom.js";
 import { HUMAN_LABELS, OUTCOME_LABELS, formatCount, percent } from "../presentation.mjs";
 import { t, tb } from "../i18n.mjs";
 
+// Step flags take their labels from the taxonomy (ctx.taxonomy.jev_flags). These are only the
+// keys it does not list: the task-level ones, and the step questions it dropped as unvalidated,
+// which summaries stored before that change still count.
 const JEV_KEYS = {
-  ignores_error: t("忽略报错"),
   misreads_observation: t("误读工具返回"),
   thought_action_mismatch: t("思行不一"),
-  claims_done: t("宣称完成"),
-  harness_reliance: t("依赖 harness"),
   filler: t("空转/道歉"),
   violates_constraint: t("违反题目约束"),
-  notices_problem: t("发现问题"),
   claims_done_unverified: t("未验证即宣称完成"),
   overclaim: t("声称完成但评分失败"),
   underclaim: t("自称未完成但评分通过"),
@@ -65,8 +64,8 @@ export async function renderStats(root, ctx, still) {
     { class: "panel stat-card" },
     h("div", { class: "panel-head" }, h("div", {}, h("h2", {}, t("Jev 语义信号")), h("p", {}, t("至少一步命中的轨迹数（共分析 {n} 条）", { n: stats.jev.analyzed })))),
     jevRows.length
-      ? h("div", { class: "bar-list" }, jevRows.map(([key, count]) => barRow(JEV_KEYS[key] || key, count, stats.jev.analyzed)))
-      : h("div", {}, empty(t("还没有 Jev 结果")), ctx.jevAvailable ? batchButton(ctx) : null)
+      ? h("div", { class: "bar-list" }, jevRows.map(([key, count]) => barRow(tb(ctx.taxonomy?.jev_flags?.[key]) || JEV_KEYS[key] || key, count, stats.jev.analyzed)))
+      : h("div", {}, empty(t("还没有 Jev 结果")), ctx.jevAvailable ? batchButton(ctx, still) : null)
   );
 
   const labelCard = h(
@@ -239,15 +238,41 @@ function confusionTable(confusion) {
   );
 }
 
-function batchButton(ctx) {
+function batchButton(ctx, still) {
   const status = h("span", { class: "hint" });
   const button = h("button", { type: "button", class: "secondary" }, t("对本集合跑 Jev 分析"));
+  let following = false;
+  async function follow(job) {
+    if (following) return;
+    following = true;
+    button.disabled = true;
+    try {
+      const done = await pollJob(job.id, (state) => { status.textContent = (state.done || 0) + " / " + (state.total ?? "…"); }, 700, still);
+      if (done) status.textContent = done.status === "done" ? t("完成，刷新查看") : t("失败：{error}", { error: done.error });
+    } catch (error) {
+      status.textContent = t("失败：{error}", { error: error.message });
+    } finally {
+      following = false;
+      button.disabled = false;
+    }
+  }
   button.addEventListener("click", async () => {
     button.disabled = true;
-    const job = await api.batchJev(ctx.collection || null, 200);
-    const done = await pollJob(job.id, (state) => { status.textContent = (state.done || 0) + " / " + (state.total ?? "…"); });
-    status.textContent = done.status === "done" ? t("完成，刷新查看") : t("失败：{error}", { error: done.error });
-    button.disabled = false;
+    try {
+      await follow(await api.batchJev(ctx.collection || null, 200));
+    } catch (error) {
+      status.textContent = t("失败：{error}", { error: error.message });
+    } finally {
+      button.disabled = following;
+    }
   });
+  // A job started earlier (here or in the library) is still running: show it, do not offer a second.
+  runningJob("jev", ctx.collection || "")
+    .then((job) => {
+      if (job && still()) follow(job);
+    })
+    .catch(() => {
+      // Only a convenience: without it the button just stays as it is.
+    });
   return h("div", { class: "inline" }, button, status);
 }
