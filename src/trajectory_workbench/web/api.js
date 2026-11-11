@@ -59,6 +59,9 @@ export const api = {
   // "" (all collections) travels as ALL_COLLECTIONS so the A / B order survives.
   explore: (collections) => request("/explore?" + collections.map((name) => "collection=" + encodeURIComponent(name || ALL_COLLECTIONS)).join("&")),
   stats: (collection) => request("/stats" + query({ collection })),
+  // Names are encoded one by one so a comma inside a name is not taken for a separator;
+  // null lets the server pick the collections that share tasks.
+  matrix: (collections) => request("/matrix" + (collections ? "?collections=" + collections.map(encodeURIComponent).join(",") : "")),
   startImport: (path, collection) => post("/imports", { path, collection: collection || null }),
   batchJev: (collection, limit) => post("/jev/batch", { collection, limit }),
   startExport: (filters, name, mode) => post("/exports", { filters, name, mode }),

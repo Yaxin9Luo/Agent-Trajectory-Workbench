@@ -8,7 +8,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, unquote, unquote_plus, urlsplit
 
 from trajectory_workbench import __version__
 from trajectory_workbench.registry import DEFAULT_REGISTRY_PATH
@@ -134,6 +134,12 @@ def create_server(
                 return self._json(service.rewrite_batches())
             if path == "/api/v4-rewards":
                 return self._json(service.v4_rewards())
+            if path == "/api/matrix":
+                # collections=<name>,<name>: split on the literal commas before decoding, so
+                # a name holding a comma travels as %2C. Absent: the server picks the columns.
+                raw_names = [value for key, _, value in (pair.partition("=") for pair in parsed.query.split("&")) if key == "collections"]
+                names = [unquote_plus(item) for item in raw_names[0].split(",") if item] if raw_names else None
+                return self._json(service.matrix(names))
             raw = self._raw_parts()
             if len(raw) == 5 and raw[:2] == ["api", "v4-rewards"] and raw[4] == "still":
                 # Only files under that reward's own work dir (see resolve_v4_still).

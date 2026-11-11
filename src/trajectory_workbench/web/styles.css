@@ -833,3 +833,36 @@ mark.rr-residue { background: none; color: inherit; text-decoration: underline d
 .filters .range-input { width: 78px; }
 .cell-meta .v4-badge { justify-self: start; }
 .v4-thumb .v4-box { min-width: 6px; min-height: 6px; }
+
+/* Task x collection matrix (#/matrix). Fits 4 columns at 1440 px; wider scrolls sideways. */
+.matrix-body { display: grid; gap: 12px; margin-top: 12px; }
+.matrix-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 12px; font-size: 12px; }
+.matrix-picks { display: flex; flex-wrap: wrap; gap: 4px 14px; flex: 1 1 400px; }
+.matrix-pick { display: inline-flex; align-items: center; gap: 5px; max-width: 280px; }
+.matrix-pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.matrix-toggle { font-size: 12px; color: var(--muted); }
+.matrix-scroll { overflow-x: auto; max-width: 100%; }
+.matrix { border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.matrix th, .matrix td { padding: 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; text-align: left; }
+.matrix thead th { position: sticky; top: 0; z-index: 1; background: var(--paper-2); border-bottom-color: var(--line); color: var(--muted); font-size: 11px; font-weight: 600; }
+.matrix .matrix-task { position: sticky; left: 0; z-index: 2; width: 240px; min-width: 240px; max-width: 240px; background: var(--paper); border-right: 1px solid var(--line); font-weight: 600; }
+.matrix thead .matrix-task { z-index: 3; background: var(--paper-2); }
+.matrix tbody .matrix-task span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35; }
+.matrix tbody .matrix-task small { display: block; margin-top: 3px; color: var(--faint); font: 400 10px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.matrix-col, .matrix-cell { width: 200px; min-width: 200px; max-width: 200px; }
+.matrix-col-name { display: block; color: var(--ink); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.matrix-col-summary { display: block; margin-top: 2px; font-weight: 400; }
+.matrix-warn { color: var(--amber); }
+.matrix-spread { width: 64px; min-width: 64px; }
+.matrix-cell-body { display: grid; gap: 5px; justify-items: start; }
+.matrix-thumb { display: grid; place-items: center; width: 184px; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--line); border-radius: 4px; background: var(--paper-2); color: var(--faint); font-size: 11px; text-decoration: none; }
+.matrix-thumb:hover { border-color: var(--blue); }
+.matrix-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.matrix-unscored, .matrix-open { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; }
+.matrix-unscored:hover, .matrix-open:hover { color: var(--blue); }
+.matrix-cell-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; width: 100%; }
+.matrix-meta { color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.matrix-none { color: var(--faint); }
+.matrix-more summary { cursor: pointer; color: var(--blue); font: 600 11px var(--mono); list-style: none; }
+.matrix-more summary::-webkit-details-marker { display: none; }
+.matrix-more > div { display: grid; gap: 3px; margin-top: 4px; font-size: 10.5px; }

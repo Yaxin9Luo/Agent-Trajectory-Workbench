@@ -182,6 +182,18 @@ one collection or two side by side (e.g. two checkpoints).
 **Compare** — two trajectories side by side (summary, tool-usage differences, first
 divergence).
 
+**Task matrix** (同题矩阵, `#/matrix`) — the same tasks across collections (e.g. one collection
+per checkpoint): one row per task, one column per collection. A scored cell shows the deck's
+first 1920x1080 still and "tier N · R x" coloured by tier; a cell without a v4 reward shows the
+verifier dot and "未打分"; a task missing from a collection shows "—". With several attempts in
+one collection the best R is shown and "+k" lists the others. Rows sort by task, by one
+column's R or by spread (best minus worst R of the scored cells), and filter to tasks whose
+tiers differ; each cell has a compare box for the two-trajectory compare page. Blind mode shows
+only which cells exist. Tasks are matched by `task_key` (task id, or a hash of the instruction's
+opening); episodes without one are counted per column, not matched.
+API: `GET /api/matrix?collections=<name>,<name>` (names URL-encoded; without it, every
+collection that shares a task with another).
+
 **Rewrite review** — for training data rewritten from one harness to another (e.g. a
 harness's trajectories rewritten for the stock agent). A batch pairs an original and a
 rewritten collection by sample id; both are ordinary collections in any supported format.

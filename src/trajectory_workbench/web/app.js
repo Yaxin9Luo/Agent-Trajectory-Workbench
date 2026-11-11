@@ -3,6 +3,7 @@ import { clear, empty, h, persist, remember } from "./dom.js";
 import { LANGUAGES, language, setLanguage, t, tb } from "./i18n.mjs";
 import { formatCount } from "./presentation.mjs";
 import { renderLibrary } from "./views/library.js";
+import { renderMatrix } from "./views/matrix.js";
 import { renderCompareHome, renderPair } from "./views/pair.js";
 import { renderQueue } from "./views/queue.js";
 import { renderReader } from "./views/reader.js";
@@ -66,6 +67,7 @@ async function route() {
     if (page === "t" && parts[1]) await renderReader(target, parts[1], ctx, still, params);
     else if (page === "pair" && parts[1] && parts[2]) await renderPair(target, parts[1], parts[2], ctx, still);
     else if (page === "compare") await renderCompareHome(target, ctx);
+    else if (page === "matrix") await renderMatrix(target, ctx, still);
     else if (page === "queue") await renderQueue(target, ctx, params, still);
     else if (page === "stats") await renderStats(target, ctx, still);
     else if (page === "search") await renderSearch(target, ctx, params, still);

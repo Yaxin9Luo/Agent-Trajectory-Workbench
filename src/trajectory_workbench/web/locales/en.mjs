@@ -9,6 +9,7 @@ import moh from "./en/moh.mjs";
 import library from "./en/library.mjs";
 import stats from "./en/stats.mjs";
 import pair from "./en/pair.mjs";
+import matrix from "./en/matrix.mjs";
 import queue from "./en/queue.mjs";
 import explore from "./en/explore.mjs";
 import review from "./en/review.mjs";
@@ -19,6 +20,6 @@ import presentation from "./en/presentation.mjs";
 import app from "./en/app.mjs";
 import backend from "./en/backend.mjs";
 
-export const TABLES = { rewrites, "rewrite-batch": rewrite_batch, reader, jev, ledgers, moh, library, stats, pair, queue, explore, review, v4reward, annotations, search, presentation, app, backend };
+export const TABLES = { rewrites, "rewrite-batch": rewrite_batch, reader, jev, ledgers, moh, library, stats, pair, matrix, queue, explore, review, v4reward, annotations, search, presentation, app, backend };
 
 export default Object.assign({}, ...Object.values(TABLES));
