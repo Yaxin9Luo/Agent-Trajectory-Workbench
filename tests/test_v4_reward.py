@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from trajectory_workbench import v4_reward
 from trajectory_workbench.service import WorkbenchService
 from trajectory_workbench.store import Store
 from tests.fixtures import make_harbor_trial, write_json
@@ -154,6 +155,8 @@ class V4RewardTest(unittest.TestCase):
         self.service.import_v4_reward(str(self.score), "v1", str(self.runs))
         rows = {item["task_id"]: item for item in self.items()}
         self.assertEqual({task: row["v4_status"] for task, row in rows.items()}, {"deck-a": "pass", "deck-b": "unknown", "deck-c": "fail"})
+        # Only the top tier counts as done: a tier-3 deck is not a pass.
+        self.assertEqual([v4_reward.status({"R": r, "tier": tier}) for r, tier in ((0.7, 4), (0.45, 3), (0.2, 2), (0.05, 1), (0.0, 0))], ["pass", "fail", "fail", "fail", "fail"])
         self.assertEqual(tasks(self.items(outcome="pass")), ["deck-a"])
         self.assertEqual(tasks(self.items(outcome="fail")), ["deck-c"])
         self.assertEqual(tasks(self.items(episodes=True, outcome="unknown")), ["deck-b"])
@@ -166,7 +169,7 @@ class V4RewardTest(unittest.TestCase):
         self.assertEqual(stats["outcomes"], {"pass": 1, "fail": 1, "unknown": 1})
         v4 = stats["v4"]
         self.assertEqual((v4["decks"], v4["scored"], v4["masked"], v4["clean"]), (3, 2, 1, 1))
-        self.assertEqual(v4["statuses"], {"pass": 1, "partial": 0, "fail": 1, "unknown": 1})
+        self.assertEqual(v4["statuses"], {"pass": 1, "fail": 1, "unknown": 1})
         self.assertEqual(v4["r_mean"], 0.4)
         self.assertEqual(v4["histogram"][0], 1)
         self.assertEqual(v4["histogram"][7], 1)

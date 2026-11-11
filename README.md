@@ -279,9 +279,11 @@ starting with `_` are skipped) under a label; importing the same label again rep
 Rewards are matched to trajectories when they are read, by task id plus a source path that
 starts with `--runs-root`, so removing and re-importing the trajectories (new ids, new
 collection name) keeps the match, and the import never changes trajectory rows or reviews.
-A trajectory with a v4 reward is judged by the reward, not by the harness verifier: tier 4 and
-above passes, tiers 2–3 are partial, lower tiers fail, a masked reward is unknown. The list dot,
-the outcome filter, the reader header and the statistics follow that rule. The statistics page
+A trajectory with a v4 reward is judged by the reward, not by the harness verifier. The reward
+is a ladder (tier 0 scores nothing, each tier above it has its own range of R), so the list dot,
+the badge and the reader header show the tier and R. Where a yes / no is needed (the outcome
+filter, "claimed done but did not do the job", the good / bad split in the statistics) only
+tier 4 counts as done; a masked reward is unknown. The statistics page
 adds a reward section: the spread of R, the tiers, and for each reward check the number of decks
 it failed on (select a check to list those trajectories; `v4_check=<id>` in the list API).
 

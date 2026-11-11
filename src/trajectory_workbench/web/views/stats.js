@@ -227,7 +227,7 @@ function rewardCard(v4, ctx) {
       { class: "metrics reward-metrics" },
       fact(t("有奖励的 deck"), String(v4.decks), v4.masked ? t("{n} 份没打出分（masked）", { n: v4.masked }) : t("全部打出了分")),
       fact(t("R 均值"), number(v4.r_mean), t("中位数 {median}", { median: number(v4.r_median) })),
-      fact(t("通过 / 部分 / 失败"), v4.statuses.pass + " / " + v4.statuses.partial + " / " + v4.statuses.fail, t("tier ≥ 4 通过，2–3 部分，更低失败")),
+      fact(t("到 tier 4 的 deck"), v4.statuses.pass + " / " + v4.scored, t("只有 tier 4 算做好；其余按 tier 看下面的分布")),
       fact(t("没有扣分项的 deck"), String(v4.clean), t("占 {share}", { share: percent(v4.decks ? v4.clean / v4.decks : null) }))
     ),
     h(
@@ -244,7 +244,7 @@ function rewardCard(v4, ctx) {
         "div",
         {},
         h("h3", { class: "mini-title" }, "tier"),
-        h("div", { class: "bar-list" }, v4.tiers.map((item) => barRow(item.tier === "masked" ? "masked" : "tier " + item.tier + (item.name ? " · " + item.name : ""), item.count, v4.decks, "#/library?v4_tier=" + item.tier)))
+        h("div", { class: "bar-list tier-bars" }, v4.tiers.map((item) => h("div", { class: "tier-row tier-" + item.tier }, barRow(item.tier === "masked" ? "masked" : "tier " + item.tier + (item.name ? " · " + item.name : ""), item.count, v4.decks, "#/library?v4_tier=" + item.tier))))
       )
     ),
     v4.checks.length

@@ -91,8 +91,6 @@ export default {
   "全部打出了分": "All scored",
   "R 均值": "Mean R",
   "中位数 {median}": "median {median}",
-  "通过 / 部分 / 失败": "Pass / partial / fail",
-  "tier ≥ 4 通过，2–3 部分，更低失败": "tier ≥ 4 passes, 2–3 partial, lower fails",
   "没有扣分项的 deck": "Decks with no failed check",
   "R 的分布": "Spread of R",
   "检查项": "Check",
@@ -104,4 +102,6 @@ export default {
   "R 均值：有 / 没有这一项": "Mean R: with / without",
   "没有未通过的检查项": "No failed checks",
   "两组 R 均值只是这个集合的描述，不是这一项扣了多少分：难题上更容易同时出现多个问题，n 小的时候差距也可能只是波动。": "The two means describe this collection; they are not what the check costs. Hard tasks tend to fail several checks at once, and with a small n the gap can be noise.",
+  "到 tier 4 的 deck": "Decks at tier 4",
+  "只有 tier 4 算做好；其余按 tier 看下面的分布": "Only tier 4 counts as done; see the tiers below for the rest",
 };

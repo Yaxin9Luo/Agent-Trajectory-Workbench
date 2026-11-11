@@ -101,5 +101,5 @@ export default {
   "有报错 / 重试": "Has errors / retries",
   "取消这个筛选": "Remove this filter",
   "扣分项：{id} ✕": "Failed check: {id} ✕",
-  "按 v4 奖励：{status}（评测脚本：{verifier}，不作数）": "By the v4 reward: {status} (verifier: {verifier}, not counted)",
+  "v4 奖励：{tier}（评测脚本：{verifier}，不作数）": "v4 reward: {tier} (verifier: {verifier}, not counted)",
 };

@@ -10,7 +10,6 @@ import {
   formatClock,
   formatCount,
   formatDuration,
-  formatReward,
   outcomeTone,
   editDiff,
   claimConsistency,
@@ -18,6 +17,8 @@ import {
   foldText,
   lineDiff,
   railCells,
+  tierClass,
+  tierText,
   trackCells,
   v4Status,
 } from "../presentation.mjs";
@@ -190,14 +191,12 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       verdict = h("div", { class: "verdict hidden-verdict" }, h("strong", {}, t("评分已隐藏")), h("span", {}, t("在右侧先给出你的判断")));
     } else if (run.v4_reward) {
       // Judged by the v4 reward; the harness verifier's result is shown but does not count.
-      const reward = run.v4_reward;
-      const status = v4Status(reward);
       verdict = h(
         "div",
-        { class: "verdict " + outcomeTone(status) },
+        { class: "verdict " + tierClass(run.v4_reward) },
         h("small", { class: "verdict-source" }, t("v4 奖励（以此为准）")),
-        h("strong", {}, OUTCOME_LABELS[status] + " · R " + formatReward(reward.R, reward.masked)),
-        h("span", {}, ["tier " + (reward.tier ?? "—") + (reward.tier_name ? " " + reward.tier_name : ""), t("评测脚本：{status}（不作数）", { status: OUTCOME_LABELS[outcome.status] || outcome.status || t("无评分") })].join(" · "))
+        h("strong", {}, tierText(run.v4_reward)),
+        h("span", {}, t("评测脚本：{status}（不作数）", { status: OUTCOME_LABELS[outcome.status] || outcome.status || t("无评分") }))
       );
     } else {
       verdict = h(

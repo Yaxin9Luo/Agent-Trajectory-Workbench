@@ -1,6 +1,6 @@
 import { api, pollJob, runningJob } from "../api.js";
 import { chip, clear, debounce, empty, h } from "../dom.js";
-import { OUTCOME_LABELS, ROLE_LABELS, claimConsistency, formatCount, formatDuration, formatReward, outcomeTone } from "../presentation.mjs";
+import { OUTCOME_LABELS, ROLE_LABELS, claimConsistency, formatCount, formatDuration, formatReward, outcomeTone, tierClass, tierText } from "../presentation.mjs";
 import { t, tb } from "../i18n.mjs";
 
 const PAGE = 100;
@@ -374,7 +374,9 @@ function episodeRow(item, ctx) {
 }
 
 function row(item, ctx, nested = false, episode = null) {
-  // A trajectory with a v4 reward is judged by the reward, not by the harness verifier.
+  // A trajectory with a v4 reward is judged by the reward, not by the harness verifier, and
+  // the dot shows its tier.
+  const rewarded = !ctx.blind && item.v4_label;
   const status = ctx.blind ? "hidden" : item.v4_status || item.outcome_status;
   const flags = (item.flags || []).map((key) => chip(tb(ctx.taxonomy.flags[key] || key), "flag"));
   (episode?.subagentFlags || []).forEach((key) => flags.push(chip(t("子代理·{flag}", { flag: tb(ctx.taxonomy.flags[key] || key) }), "flag")));
@@ -407,14 +409,14 @@ function row(item, ctx, nested = false, episode = null) {
   });
   const dotTitle = status === "hidden"
     ? t("盲判模式")
-    : item.v4_status
-      ? t("按 v4 奖励：{status}（评测脚本：{verifier}，不作数）", { status: OUTCOME_LABELS[status] || status, verifier: OUTCOME_LABELS[item.outcome_status] || item.outcome_status || "—" })
+    : rewarded
+      ? t("v4 奖励：{tier}（评测脚本：{verifier}，不作数）", { tier: tierText(item), verifier: OUTCOME_LABELS[item.outcome_status] || item.outcome_status || "—" })
       : OUTCOME_LABELS[status];
   const kind = item.extra?.subagent_type ? (item.extra.description ? t("{type}：{description}", { type: item.extra.subagent_type, description: item.extra.description }) : item.extra.subagent_type) : "";
   return h(
     "a",
     { class: "row" + (nested ? " nested" : ""), href: "#/t/" + encodeURIComponent(item.id), onclick: () => { ctx.queueNav = null; } },
-    h("span", { class: "row-pick" }, episode?.toggle || pick, nested ? null : h("span", { class: "dot " + (status === "hidden" ? "muted" : outcomeTone(status)), title: dotTitle })),
+    h("span", { class: "row-pick" }, episode?.toggle || pick, nested ? null : h("span", { class: "dot " + (status === "hidden" ? "muted" : rewarded ? tierClass(item) : outcomeTone(status)), title: dotTitle })),
     h(
       "span",
       { class: "cell-title" },
@@ -434,7 +436,7 @@ function row(item, ctx, nested = false, episode = null) {
 function v4Badge(item) {
   if (!item.v4_label) return null;
   const masked = item.v4_masked || item.v4_r === null || item.v4_r === undefined;
-  const tone = masked ? "warn" : item.v4_tier >= 3 ? "ok" : item.v4_tier >= 1 ? "info" : "bad";
+  const tone = tierClass(item);
   const text = "v4 " + (item.v4_tier ?? "—") + " · " + formatReward(item.v4_r, masked) + (item.v4_errors ? " ⚠" : "");
   const title = [
     t("v4 reward（{label}）", { label: item.v4_label }),

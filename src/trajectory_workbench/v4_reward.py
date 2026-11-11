@@ -102,13 +102,16 @@ def read_root(root: Path, runs_root: str) -> tuple[list[dict[str, Any]], list[di
     return rows, errors
 
 
+DONE_TIER = 4
+
+
 def status(reward: dict[str, Any]) -> str:
-    """The outcome a reward stands for (same rule as store.V4_STATUS): masked is unknown,
-    tier 4 and above passes, tiers 2-3 are partial, lower tiers fail."""
+    """Did the deck do the job, where a yes / no is needed (same rule as store.V4_STATUS):
+    only the top tier counts as done; a masked reward is unknown. The tier itself, not this,
+    is what readers are shown: every tier above 0 has its own range of R."""
     if reward.get("masked") or reward.get("R") is None:
         return "unknown"
-    tier = reward.get("tier") or 0
-    return "pass" if tier >= 4 else "partial" if tier >= 2 else "fail"
+    return "pass" if (reward.get("tier") or 0) >= DONE_TIER else "fail"
 
 
 def _mean(values: list[float]) -> float | None:
@@ -171,7 +174,7 @@ def collection_stats(decks: list[dict[str, Any]]) -> dict[str, Any] | None:
         "masked": len(decks) - len(scored),
         "r_mean": _mean(scored),
         "r_median": round(ordered[len(ordered) // 2] if len(ordered) % 2 else (ordered[len(ordered) // 2 - 1] + ordered[len(ordered) // 2]) / 2, 4) if ordered else None,
-        "statuses": {name: sum(1 for deck in decks if status(deck["reward"]) == name) for name in ("pass", "partial", "fail", "unknown")},
+        "statuses": {name: sum(1 for deck in decks if status(deck["reward"]) == name) for name in ("pass", "fail", "unknown")},
         "tiers": [{"tier": tier, "name": name, "count": count} for (tier, name), count in sorted(tiers.items(), key=lambda item: (item[0][0] == "masked", -(item[0][0] if isinstance(item[0][0], int) else -1)))],
         "histogram": histogram,
         "clean": sum(1 for deck in decks if not (deck["reward"].get("failed") or [])),

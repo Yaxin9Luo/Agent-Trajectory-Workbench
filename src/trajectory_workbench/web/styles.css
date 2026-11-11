@@ -400,6 +400,14 @@ pre { margin: 6px 0 0; max-height: 420px; overflow: auto; padding: 9px 10px; bor
 .reward-spread { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 2fr); gap: 24px; margin-bottom: 14px; }
 .reward-checks { display: block; overflow-x: auto; }
 .reward-checks td code { font-size: 11px; }
+/* The v4 reward ladder: one colour per tier, used by dots, list badges, verdicts and bars. */
+.tier-0 { --tier: #b3261e; --tier-soft: #fbe9e7; } .tier-1 { --tier: #c2571a; --tier-soft: #fdeee2; }
+.tier-2 { --tier: #b7791f; --tier-soft: #fbf3dc; } .tier-3 { --tier: #6b8e23; --tier-soft: #eff5dd; }
+.tier-4 { --tier: #2f7d4f; --tier-soft: #e3f3e8; } .tier-masked { --tier: #8a94a6; --tier-soft: #eef1f6; }
+.dot[class*="tier-"] { background: var(--tier); }
+.chip[class*="tier-"] { color: var(--tier); background: var(--tier-soft); border-color: var(--tier-soft); }
+.verdict[class*="tier-"] { background: var(--tier-soft); border-color: var(--tier-soft); } .verdict[class*="tier-"] strong { color: var(--tier); }
+.tier-row .bar-fill { background: var(--tier); }
 .filter-chip { cursor: pointer; color: var(--cyan); background: var(--cyan-soft); border-color: #c8e8ef; }
 @media (max-width: 900px) { .reward-spread { grid-template-columns: 1fr; } .reward-metrics { grid-template-columns: repeat(2, 1fr); } }
 

@@ -16,6 +16,8 @@ import {
   terminalCards,
   toolSignature,
   claimConsistency,
+  tierClass,
+  tierText,
   v4Status,
 } from "../src/trajectory_workbench/web/presentation.mjs";
 
@@ -241,16 +243,23 @@ test("v4 crop window keeps the box in view and clamps to the viewport", async ()
   assert.equal(formatReward(0.5, true), "masked");
 });
 
-test("a v4 reward stands for an outcome: masked unknown, tier 4 pass, 2-3 partial, lower fail", () => {
+test("a v4 reward is shown by tier; only tier 4 counts as done", () => {
   assert.equal(v4Status(null), null);
   assert.equal(v4Status({ R: 0.76, tier: 4, masked: false }), "pass");
-  assert.equal(v4Status({ R: 0.15, tier: 2 }), "partial");
-  assert.equal(v4Status({ R: 0.03, tier: 1 }), "fail");
+  assert.equal(v4Status({ R: 0.45, tier: 3 }), "fail");
+  assert.equal(v4Status({ R: 0.15, tier: 2 }), "fail");
   assert.equal(v4Status({ R: 0, tier: 0 }), "fail");
   assert.equal(v4Status({ R: null, tier: 1, masked: true }), "unknown");
   // A list row carries the same reward as v4_* fields.
   assert.equal(v4Status({ v4_r: 0.6, v4_tier: 4, v4_masked: false }), "pass");
   assert.equal(v4Status({ v4_r: null, v4_tier: 1, v4_masked: true }), "unknown");
+  assert.equal(tierClass({ R: 0.15, tier: 2 }), "tier-2");
+  assert.equal(tierClass({ v4_r: 0, v4_tier: 0 }), "tier-0");
+  assert.equal(tierClass({ R: null, tier: 1, masked: true }), "tier-masked");
+  assert.equal(tierClass(null), "");
+  assert.equal(tierText({ R: 0.153, tier: 2, tier_name: "L1 major" }), "tier 2 L1 major · R 0.15");
+  assert.equal(tierText({ v4_r: 0.6, v4_tier: 4, v4_tier_name: "pass" }), "tier 4 pass · R 0.60");
+  assert.equal(tierText({ R: null, masked: true }), "masked");
 });
 
 test("claim consistency compares the final claim with the outcome that counts", () => {

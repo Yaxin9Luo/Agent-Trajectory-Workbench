@@ -193,11 +193,12 @@ V4_MATCH = (
     "(t.path = w.runs_root OR substr(t.path, 1, length(w.runs_root) + 1) = w.runs_root || '/') "
     "ORDER BY w.imported_at DESC, w.label LIMIT 1)"
 )
-# The outcome a v4 reward stands for (v4_reward.status holds the same rule for Python): a
-# trajectory with a reward is judged by the reward, not by the harness's own verifier.
+# A trajectory with a v4 reward is judged by the reward, not by the harness's own verifier.
+# The reward is a ladder: tier 0 scores nothing and each tier above it has its own range of
+# R, so the tier is what is shown. Where a yes / no is needed (did it do the job?), only the
+# top tier counts as done. v4_reward.status holds the same rule for Python.
 V4_STATUS = (
-    "CASE WHEN v.rowid IS NULL THEN NULL WHEN v.masked THEN 'unknown' WHEN v.tier >= 4 THEN 'pass' "
-    "WHEN v.tier >= 2 THEN 'partial' ELSE 'fail' END"
+    "CASE WHEN v.rowid IS NULL THEN NULL WHEN v.masked THEN 'unknown' WHEN v.tier >= 4 THEN 'pass' ELSE 'fail' END"
 )
 V4_SELECT = (
     "v.label AS v4_label, v.tier AS v4_tier, v.tier_name AS v4_tier_name, v.r_value AS v4_r, "

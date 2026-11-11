@@ -387,15 +387,38 @@ const V4_SEVERITY_RANK = { invalid: 0, fatal: 1, major: 2, severe: 3, normal: 4,
 
 /** Short text for a reward: R with two decimals, or "masked" (masked is not zero). */
 /**
- * The outcome a v4 reward stands for (the server's v4_reward.status has the same rule): a
- * trajectory with a reward is judged by it, not by the harness verifier.
+ * Did the deck do the job, where a yes / no is needed (the server's v4_reward.status has the
+ * same rule): only the top tier counts as done. A trajectory with a reward is judged by it,
+ * not by the harness verifier. Takes a reward or a list row with v4_* fields.
  */
 export function v4Status(reward) {
   if (!reward) return null;
+  if (v4Masked(reward)) return "unknown";
+  return (reward.tier ?? reward.v4_tier ?? 0) >= 4 ? "pass" : "fail";
+}
+
+function v4Masked(reward) {
   const r = reward.R ?? reward.v4_r;
-  if (reward.masked || reward.v4_masked || r === null || r === undefined) return "unknown";
-  const tier = reward.tier ?? reward.v4_tier ?? 0;
-  return tier >= 4 ? "pass" : tier >= 2 ? "partial" : "fail";
+  return Boolean(reward.masked || reward.v4_masked || r === null || r === undefined);
+}
+
+/**
+ * The CSS class for a reward's tier: "tier-0" … "tier-4", or "tier-masked". The reward is a
+ * ladder (tier 0 scores nothing, each tier above it has its own range of R), so views show
+ * the tier, not pass / fail.
+ */
+export function tierClass(reward) {
+  if (!reward) return "";
+  if (v4Masked(reward)) return "tier-masked";
+  return "tier-" + Math.max(0, Math.min(4, Number(reward.tier ?? reward.v4_tier ?? 0)));
+}
+
+/** "tier 2 L1 major · R 0.15", or "masked". */
+export function tierText(reward) {
+  if (v4Masked(reward)) return "masked";
+  const tier = reward.tier ?? reward.v4_tier;
+  const name = reward.tier_name ?? reward.v4_tier_name;
+  return "tier " + (tier ?? "—") + (name ? " " + name : "") + " · R " + formatReward(reward.R ?? reward.v4_r, false);
 }
 
 /** What the agent claimed at the end against how it was judged (same rule as jev.outcome_consistency). */
