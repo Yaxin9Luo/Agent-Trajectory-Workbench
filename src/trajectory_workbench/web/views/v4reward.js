@@ -1,6 +1,7 @@
 import { api } from "../api.js";
 import { chip, details, h } from "../dom.js";
 import { cropGeometry, formatReward, groupByLayer, parseViewport } from "../presentation.mjs";
+import { t } from "../i18n.mjs";
 
 const SEVERITY_TONE = { fatal: "bad", severe: "bad", major: "warn", normal: "warn", minor: "muted", invalid: "muted" };
 const STAGE_ORDER = ["L0-L1", "L2", "L3"];
@@ -20,7 +21,7 @@ export function renderV4Reward(reward) {
     ["a_L3", reward.a_L3 ?? "—"],
     ["m", reward.m ?? "—"],
     ["q", reward.q ?? "—"],
-    ["页", reward.slides ?? "—"],
+    [t("页"), reward.slides ?? "—"],
   ];
   const items = [...(reward.failed || []), ...(reward.derived_items || []).map((item) => ({ ...item, derived: true }))];
   return h(
@@ -32,11 +33,11 @@ export function renderV4Reward(reward) {
       h(
         "div",
         {},
-        h("span", { class: "eyebrow" }, "v4 reward · RL 奖励 · " + reward.label),
+        h("span", { class: "eyebrow" }, t("v4 reward · RL 奖励 · {label}", { label: reward.label })),
         h(
           "h2",
           {},
-          masked ? "masked（不是 0）" : "R " + formatReward(reward.R),
+          masked ? t("masked（不是 0）") : "R " + formatReward(reward.R),
           reward.tier_name ? " · tier " + (reward.tier ?? "—") + " " + reward.tier_name : ""
         ),
         h("p", {}, ["scorer " + (reward.scorer || "—"), reward.rubric, reward.reward_path].filter(Boolean).join(" · "))
@@ -50,13 +51,13 @@ export function renderV4Reward(reward) {
           h(
             "div",
             { class: "v4-layer" },
-            h("h3", {}, group.layer + " · " + group.items.length + " 项未通过"),
+            h("h3", {}, t("{layer} · {count} 项未通过", { layer: group.layer, count: group.items.length })),
             group.items.map((item) => renderItem(item, stillFor, stillUrl))
           )
         )
-      : h("p", { class: "muted" }, "没有未通过的检查项"),
+      : h("p", { class: "muted" }, t("没有未通过的检查项")),
     renderStills(reward, stillUrl),
-    reward.critique ? details("L3 评审原文 critique", reward.critique) : null
+    reward.critique ? details(t("L3 评审原文 critique"), reward.critique) : null
   );
 }
 
@@ -65,10 +66,10 @@ function renderUnknown(unknown) {
   return h(
     "div",
     { class: "v4-unknown" },
-    h("strong", {}, "R 为空（masked）：这条不计入奖励，不能当 0 分。原因："),
+    h("strong", {}, t("R 为空（masked）：这条不计入奖励，不能当 0 分。原因：")),
     list.length
       ? h("ul", {}, list.map((entry) => h("li", {}, typeof entry === "string" ? entry : Object.entries(entry || {}).map(([k, v]) => k + "=" + (typeof v === "string" ? v : JSON.stringify(v))).join(" · "))))
-      : h("span", { class: "muted" }, " 打分器没有给出原因")
+      : h("span", { class: "muted" }, t(" 打分器没有给出原因"))
   );
 }
 
@@ -77,19 +78,19 @@ function renderRunInfo(reward) {
   const stages = STAGE_ORDER.filter((key) => typeof timing[key] === "number").map((key) => key + " " + timing[key].toFixed(1) + "s");
   const sub = Object.entries(timing.stages || {}).map(([key, value]) => key + " " + Number(value).toFixed(1) + "s");
   const problems = [];
-  if (reward.failed_stage) problems.push(chip("失败阶段 " + reward.failed_stage, "bad"));
-  if (timing.retried) problems.push(chip("有重试", "warn"));
-  if (timing.L3_dropped) problems.push(chip("L3 被丢弃", "warn"));
+  if (reward.failed_stage) problems.push(chip(t("失败阶段 {stage}", { stage: reward.failed_stage }), "bad"));
+  if (timing.retried) problems.push(chip(t("有重试"), "warn"));
+  if (timing.L3_dropped) problems.push(chip(t("L3 被丢弃"), "warn"));
   (Array.isArray(reward.deck_fault) ? reward.deck_fault : reward.deck_fault ? [reward.deck_fault] : []).forEach((fault) =>
     problems.push(chip("deck fault " + (typeof fault === "string" ? fault : JSON.stringify(fault)), "bad"))
   );
   return h(
     "div",
     { class: "v4-run" },
-    h("span", {}, "总耗时 " + (typeof reward.seconds === "number" ? reward.seconds.toFixed(1) + "s" : "—")),
+    h("span", {}, t("总耗时 {time}", { time: typeof reward.seconds === "number" ? reward.seconds.toFixed(1) + "s" : "—" })),
     stages.length ? h("span", { class: "muted" }, stages.join(" · ")) : null,
-    sub.length ? h("small", { class: "muted" }, "L0-L1 内：" + sub.join(" · ")) : null,
-    problems.length ? h("span", { class: "chips" }, problems) : h("span", { class: "chip ok" }, "无报错 / 重试"),
+    sub.length ? h("small", { class: "muted" }, t("L0-L1 内：{stages}", { stages: sub.join(" · ") })) : null,
+    problems.length ? h("span", { class: "chips" }, problems) : h("span", { class: "chip ok" }, t("无报错 / 重试")),
     reward.env ? h("small", { class: "muted" }, Object.entries(reward.env).map(([k, v]) => k + " " + (typeof v === "string" ? v : JSON.stringify(v))).join(" · ")) : null
   );
 }
@@ -110,10 +111,10 @@ function renderItem(item, stillFor, stillUrl) {
       chip(item.severity || "?", SEVERITY_TONE[item.severity] || "muted"),
       h("code", {}, item.id || "?"),
       item.derived ? chip("derived", "muted") : null,
-      slides.length ? h("small", {}, "第 " + slides.join("、") + " 页") : null
+      slides.length ? h("small", {}, t("第 {pages} 页", { pages: slides.join(t("、")) })) : null
     ),
     evidence.note ? h("div", { class: "ledger-text" }, evidence.note) : null,
-    crops.length ? h("div", { class: "v4-crops" }, crops) : boxes.length ? h("small", { class: "muted" }, "（没有 " + viewport + " 的截图）") : null
+    crops.length ? h("div", { class: "v4-crops" }, crops) : boxes.length ? h("small", { class: "muted" }, t("（没有 {viewport} 的截图）", { viewport })) : null
   );
 }
 
@@ -160,10 +161,10 @@ function renderStills(reward, stillUrl) {
       h(
         "a",
         { href: stillUrl(path), target: "_blank", rel: "noopener noreferrer", title: path },
-        h("img", { src: stillUrl(path), alt: "第 " + parseInt(path.split("/").pop(), 10) + " 页", loading: "lazy" }),
+        h("img", { src: stillUrl(path), alt: t("第 {page} 页", { page: parseInt(path.split("/").pop(), 10) }), loading: "lazy" }),
         h("small", {}, String(parseInt(path.split("/").pop(), 10)))
       )
     )
   );
-  return details("逐页截图 1920x1080 · " + list.length + " 页", strip, true);
+  return details(t("逐页截图 1920x1080 · {count} 页", { count: list.length }), strip, true);
 }

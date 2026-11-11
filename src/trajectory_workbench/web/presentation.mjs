@@ -1,3 +1,5 @@
+import { t } from "./i18n.mjs";
+
 export function formatDuration(milliseconds) {
   if (milliseconds == null || !Number.isFinite(Number(milliseconds))) return "—";
   const total = Number(milliseconds);
@@ -42,29 +44,29 @@ export function formatClock(milliseconds) {
 }
 
 export const OUTCOME_LABELS = {
-  pass: "评分通过",
-  partial: "部分通过",
-  fail: "评分失败",
-  error: "未完成/报错",
-  unknown: "无评分",
+  pass: t("评分通过"),
+  partial: t("部分通过"),
+  fail: t("评分失败"),
+  error: t("未完成/报错"),
+  unknown: t("无评分"),
 };
 
-export const HUMAN_LABELS = { pass: "确实完成", partial: "部分完成", fail: "没完成", unsure: "说不准" };
+export const HUMAN_LABELS = { pass: t("确实完成"), partial: t("部分完成"), fail: t("没完成"), unsure: t("说不准") };
 
 export const PHASE_LABELS = {
-  explore: "探索",
-  plan: "规划",
-  implement: "实现",
-  verify: "验证",
-  debug: "调试",
-  report: "汇报",
-  other: "其他",
+  explore: t("探索"),
+  plan: t("规划"),
+  implement: t("实现"),
+  verify: t("验证"),
+  debug: t("调试"),
+  report: t("汇报"),
+  other: t("其他"),
 };
 
-export const LAYER_LABELS = { base: "内置工具", mcp: "MCP", skill: "Skill", subagent: "子代理", hook: "Hook", instruction: "Instruction" };
+export const LAYER_LABELS = { base: t("内置工具"), mcp: "MCP", skill: "Skill", subagent: t("子代理"), hook: "Hook", instruction: "Instruction" };
 
-export const WORK_LABELS = { required: "必需", fix: "修复", polish: "打磨", support: "辅助", unclear: "不明" };
-export const ROLE_LABELS = { main: "主轨迹", segment: "上下文分段", subagent: "子代理" };
+export const WORK_LABELS = { required: t("必需"), fix: t("修复"), polish: t("打磨"), support: t("辅助"), unclear: t("不明") };
+export const ROLE_LABELS = { main: t("主轨迹"), segment: t("上下文分段"), subagent: t("子代理") };
 
 export function outcomeTone(status) {
   return { pass: "ok", partial: "warn", fail: "bad", error: "bad" }[status] || "muted";
@@ -73,10 +75,10 @@ export function outcomeTone(status) {
 /** How the reviewer's verdict relates to the grader's. */
 export function graderAgreement(grader, human) {
   if (!human || human === "unsure" || !grader || grader === "unknown") return null;
-  if (grader === "pass" && (human === "fail" || human === "partial")) return { key: "inflated", label: "评分虚高：评分器判过，人工判不过" };
-  if ((grader === "fail" || grader === "error") && human === "pass") return { key: "deflated", label: "评分误杀：评分器判失败，人工判完成" };
-  if (grader === human || (grader === "error" && human === "fail")) return { key: "agree", label: "与评分器一致" };
-  return { key: "partial", label: "与评分器部分一致" };
+  if (grader === "pass" && (human === "fail" || human === "partial")) return { key: "inflated", label: t("评分虚高：评分器判过，人工判不过") };
+  if ((grader === "fail" || grader === "error") && human === "pass") return { key: "deflated", label: t("评分误杀：评分器判失败，人工判完成") };
+  if (grader === human || (grader === "error" && human === "fail")) return { key: "agree", label: t("与评分器一致") };
+  return { key: "partial", label: t("与评分器部分一致") };
 }
 
 export function terminalCards(run) {
@@ -193,8 +195,8 @@ export function firstDivergence(leftMessages, rightMessages) {
     return {
       left: leftLonger ? next.step : last.step,
       right: leftLonger ? last.step : next.step,
-      leftLabel: leftLonger ? next.signature : "（结束）",
-      rightLabel: leftLonger ? "（结束）" : next.signature,
+      leftLabel: leftLonger ? next.signature : t("（结束）"),
+      rightLabel: leftLonger ? t("（结束）") : next.signature,
       shared: length,
     };
   }
@@ -206,6 +208,71 @@ export function foldLines(text, head = 40, tail = 20) {
   const lines = String(text ?? "").split("\n");
   if (lines.length <= head + tail + 10) return { folded: false, head: lines, tail: [], hidden: 0 };
   return { folded: true, head: lines.slice(0, head), tail: lines.slice(-tail), hidden: lines.length - head - tail };
+}
+
+/** Cut `text` at `end` without splitting a surrogate pair. */
+function sliceHead(text, end) {
+  const code = text.charCodeAt(end - 1);
+  return text.slice(0, code >= 0xd800 && code <= 0xdbff ? end - 1 : end);
+}
+
+function sliceTail(text, count) {
+  const start = text.length - count;
+  const code = text.charCodeAt(start);
+  return text.slice(code >= 0xdc00 && code <= 0xdfff ? start + 1 : start);
+}
+
+/**
+ * Head and tail of a long text as strings. Folds by lines first; when the kept part is still
+ * too long (one huge line: minified JSON, base64, one-line HTML) it folds by characters.
+ * `unit` says what `hidden` counts: "行" or "字".
+ */
+export function foldText(text, { head = 40, tail = 20, maxChars = 12000, headChars = 6000, tailChars = 3000 } = {}) {
+  const value = String(text ?? "");
+  const lines = foldLines(value, head, tail);
+  const headText = lines.head.join("\n");
+  const tailText = lines.tail.join("\n");
+  if (headText.length + tailText.length <= maxChars) {
+    return lines.folded
+      ? { folded: true, head: headText, tail: tailText, hidden: lines.hidden, unit: "行" }
+      : { folded: false, head: value, tail: "", hidden: 0, unit: "行" };
+  }
+  const keptHead = sliceHead(value, headChars);
+  const keptTail = sliceTail(value, tailChars);
+  return { folded: true, head: keptHead, tail: keptTail, hidden: value.length - keptHead.length - keptTail.length, unit: "字" };
+}
+
+const PATCH_START = /^\s*\*\*\* Begin Patch/;
+
+/**
+ * What a file-changing call does, read from the shape of its input so it works across harnesses:
+ *   {kind: "edit", path, hunks: [{before, after}]}   old/new string pairs (Edit, MultiEdit, str_replace)
+ *   {kind: "write", path, content}                   whole-file content (Write, create)
+ *   {kind: "patch", text}                            apply_patch text
+ * Returns null for any other input.
+ */
+export function editView(input) {
+  if (typeof input === "string") return PATCH_START.test(input) ? { kind: "patch", text: input } : null;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  for (const key of ["input", "patch", "command"]) {
+    if (typeof input[key] === "string" && PATCH_START.test(input[key])) return { kind: "patch", text: input[key] };
+  }
+  const path = [input.file_path, input.path, input.notebook_path].find((value) => typeof value === "string") || "";
+  const pair = (item) => {
+    if (!item || typeof item !== "object") return null;
+    const before = item.old_string ?? item.old_str;
+    const after = item.new_string ?? item.new_str;
+    return typeof before === "string" && typeof after === "string" ? { before, after } : null;
+  };
+  if (Array.isArray(input.edits)) {
+    const hunks = input.edits.map(pair);
+    if (hunks.length && hunks.every(Boolean)) return { kind: "edit", path, hunks };
+  }
+  const single = pair(input);
+  if (single) return { kind: "edit", path, hunks: [single] };
+  const content = input.content ?? input.file_text;
+  if (path && typeof content === "string") return { kind: "write", path, content };
+  return null;
 }
 
 /**

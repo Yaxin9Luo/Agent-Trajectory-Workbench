@@ -1,0 +1,23 @@
+// English for the interface text in moh. Key: the Chinese source text, exactly as written in t().
+export default {
+  "MoH 终止链路": "MoH termination chain",
+  "生成成功不等于 Runtime 已交付": "A successful generation does not mean the Runtime delivered it",
+  "读取 diff…": "Loading diffs...",
+  "内容不可读": "Content unreadable",
+  "+{added} / −{removed} 行": "+{added} / -{removed} lines",
+  "artifact.html 内容没有变化": "artifact.html content did not change",
+  "读取失败：{message}": "Failed to load: {message}",
+  "{count} 个唯一状态（按 SHA 去重）": "{count} unique states (deduplicated by SHA)",
+  "这次运行没有调用": "No calls in this run",
+  "{count} 次调用 · 观察证据与 artifact SHA": "{count} calls · observation evidence and artifact SHA",
+  "耗时": "duration",
+  "诊断": "diagnostics",
+  "无法解析": "Could not parse",
+  "MoH system 扩展": "MoH system extension",
+  "MoH user 输入": "MoH user input",
+  "记录与摘要一致": "records match the digest",
+  "记录不一致": "records do not match",
+  "未验证": "not verified",
+  "MoH 输入记录": "MoH input records",
+  "来源 {source}；不含 Claude Code 原生 system": "Source {source}; excludes the native Claude Code system prompt",
+};

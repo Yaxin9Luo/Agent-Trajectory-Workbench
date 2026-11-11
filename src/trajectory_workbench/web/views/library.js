@@ -1,6 +1,7 @@
 import { api, pollJob } from "../api.js";
 import { chip, clear, debounce, empty, h } from "../dom.js";
 import { OUTCOME_LABELS, ROLE_LABELS, formatCount, formatDuration, formatReward, outcomeTone } from "../presentation.mjs";
+import { t, tb } from "../i18n.mjs";
 
 const PAGE = 100;
 
@@ -24,43 +25,43 @@ export async function renderLibrary(root, ctx, params, still) {
     offset: Number(params.get("offset") || 0),
   };
   const taxonomy = ctx.taxonomy;
-  const title = ctx.collection || "全部集合";
+  const title = ctx.collection || t("全部集合");
 
   const status = h("span", { class: "muted" });
-  const batchButton = h("button", { type: "button", class: "secondary", disabled: !ctx.jevAvailable }, "对未分析的轨迹跑 Jev");
+  const batchButton = h("button", { type: "button", class: "secondary", disabled: !ctx.jevAvailable }, t("对未分析的轨迹跑 Jev"));
   const compareLink = h("span");
   ctx.onCompareChange = () => {
     const selection = ctx.compareSelection;
     clear(
       compareLink,
       selection.length === 2
-        ? h("a", { class: "button-like primary-link", href: "#/pair/" + selection.map(encodeURIComponent).join("/") }, "对比所选 2 条 →")
-        : h("span", { class: "muted" }, "勾选 2 条可对比（已选 " + selection.length + "）")
+        ? h("a", { class: "button-like primary-link", href: "#/pair/" + selection.map(encodeURIComponent).join("/") }, t("对比所选 2 条 →"))
+        : h("span", { class: "muted" }, t("勾选 2 条可对比（已选 {n}）", { n: selection.length }))
     );
   };
   ctx.onCompareChange();
   const header = h(
     "header",
     { class: "page-head" },
-    h("div", {}, h("span", { class: "eyebrow" }, "轨迹库"), h("h1", {}, title)),
+    h("div", {}, h("span", { class: "eyebrow" }, t("轨迹库")), h("h1", {}, title)),
     h("div", { class: "head-actions" }, compareLink, status, exportMenu(), batchButton)
   );
 
   /** Export what the current filters show as training JSONL plus a data card. */
   function exportMenu() {
     const stamp = new Date().toISOString().slice(0, 10);
-    const name = h("input", { type: "text", "aria-label": "导出文件夹名", value: ((ctx.collection || "all") + "-" + stamp).replace(/[^\w.-]+/g, "_") });
+    const name = h("input", { type: "text", "aria-label": t("导出文件夹名"), value: ((ctx.collection || "all") + "-" + stamp).replace(/[^\w.-]+/g, "_") });
     const mode = h(
       "select",
-      { "aria-label": "导出格式" },
-      h("option", { value: "raw" }, "原始行（字节拷贝，SFT/TraceLab）"),
-      h("option", { value: "chat" }, "转成 OpenAI chat（任何格式）")
+      { "aria-label": t("导出格式") },
+      h("option", { value: "raw" }, t("原始行（字节拷贝，SFT/TraceLab）")),
+      h("option", { value: "chat" }, t("转成 OpenAI chat（任何格式）"))
     );
     const note = h("span", { class: "save-status" });
-    const start = h("button", { type: "button", class: "primary" }, "导出");
+    const start = h("button", { type: "button", class: "primary" }, t("导出"));
     start.addEventListener("click", async () => {
       start.disabled = true;
-      note.textContent = "导出中…";
+      note.textContent = t("导出中…");
       try {
         const job = await api.startExport(
           {
@@ -84,11 +85,13 @@ export async function renderLibrary(root, ctx, params, still) {
           name.value.trim(),
           mode.value
         );
-        const finished = await pollJob(job.id, (state) => { note.textContent = "导出中 " + (state.done || 0) + " / " + (state.total ?? "…"); });
+        const finished = await pollJob(job.id, (state) => { note.textContent = t("导出中 {done} / {total}", { done: state.done || 0, total: state.total ?? "…" }); });
         if (finished.status === "failed") throw new Error(finished.error);
-        note.textContent = "写出 " + finished.result.written + " 条" + (finished.result.skipped ? "（跳过 " + finished.result.skipped + "，见 data card）" : "") + " → " + finished.result.path;
+        note.textContent = finished.result.skipped
+          ? t("写出 {written} 条（跳过 {skipped}，见 data card） → {path}", { written: finished.result.written, skipped: finished.result.skipped, path: finished.result.path })
+          : t("写出 {written} 条 → {path}", { written: finished.result.written, path: finished.result.path });
       } catch (error) {
-        note.textContent = "导出失败：" + error.message;
+        note.textContent = t("导出失败：{error}", { error: error.message });
       } finally {
         start.disabled = false;
       }
@@ -96,11 +99,11 @@ export async function renderLibrary(root, ctx, params, still) {
     return h(
       "details",
       { class: "export-excerpt" },
-      h("summary", { class: "button-like" }, "导出筛选结果"),
+      h("summary", { class: "button-like" }, t("导出筛选结果")),
       h(
         "div",
         { class: "export-excerpt-body" },
-        h("small", { class: "muted" }, "按当前筛选导出；按 episode 看时整段 episode（含分段、子代理）一起导出。写到服务器的导出目录下。"),
+        h("small", { class: "muted" }, t("按当前筛选导出；按 episode 看时整段 episode（含分段、子代理）一起导出。写到服务器的导出目录下。")),
         name,
         mode,
         h("div", { class: "inline" }, start),
@@ -118,27 +121,27 @@ export async function renderLibrary(root, ctx, params, still) {
     element.value = filters[name];
     return element;
   };
-  const search = h("input", { type: "search", placeholder: "搜索标题 / 任务 / id", value: filters.search });
+  const search = h("input", { type: "search", placeholder: t("搜索标题 / 任务 / id"), value: filters.search });
   search.addEventListener("input", debounce(() => update({ search: search.value.trim(), offset: 0 }), 250));
   const controls = h(
     "div",
     { class: "filters panel" },
     search,
     ctx.blind
-      ? h("span", { class: "chip muted" }, "盲判模式：隐藏评分")
-      : select("outcome", [["", "全部结果"], ...Object.entries(OUTCOME_LABELS)], "评分结果"),
-    select("flag", [["", "全部信号"], ...Object.entries(taxonomy.flags)], "规则信号"),
-    select("jev_flag", [["", "全部 Jev 信号"], ...Object.entries(taxonomy.jev_flags || {})], "Jev 信号（有一步被标出）"),
-    select("label", [["", "全部标签"], ...taxonomy.labels.map((item) => [item.key, item.label])], "人工标签"),
-    select("reviewed", [["", "读过/未读"], ["0", "未读"], ["1", "已读"]], "是否已读"),
-    select("ready", [["", "训练就绪：全部"], ["1", "可直接训练"], ["0", "有阻断问题"]], "训练就绪"),
-    select("issue", [["", "全部就绪问题"], ...Object.entries(taxonomy.readiness_issues || {})], "就绪问题"),
-    select("view", [["episode", "按 episode（一行一次尝试）"], ["main,segment", "主轨迹+分段"], ["subagent", "只看子代理"], ["all", "全部轨迹"]], "显示单位"),
-    ctx.blind ? null : select("v4_tier", [["", "v4 tier：全部"], ["any", "有 v4 reward"], ["none", "没有 v4 reward"], ["masked", "masked"], ["4", "tier 4"], ["3", "tier 3"], ["2", "tier 2"], ["1", "tier 1"], ["0", "tier 0"]], "v4 reward tier"),
-    ctx.blind ? null : select("v4_errors", [["", "v4 报错：全部"], ["1", "有报错（masked / 失败阶段 / deck fault / 重试）"], ["0", "无报错"]], "v4 reward 是否有报错"),
+      ? h("span", { class: "chip muted" }, t("盲判模式：隐藏评分"))
+      : select("outcome", [["", t("全部结果")], ...Object.entries(OUTCOME_LABELS)], t("评分结果")),
+    select("flag", [["", t("全部信号")], ...Object.entries(taxonomy.flags).map(([key, text]) => [key, tb(text)])], t("规则信号")),
+    select("jev_flag", [["", t("全部 Jev 信号")], ...Object.entries(taxonomy.jev_flags || {}).map(([key, text]) => [key, tb(text)])], t("Jev 信号（有一步被标出）")),
+    select("label", [["", t("全部标签")], ...taxonomy.labels.map((item) => [item.key, tb(item.label)])], t("人工标签")),
+    select("reviewed", [["", t("读过/未读")], ["0", t("未读")], ["1", t("已读")]], t("是否已读")),
+    select("ready", [["", t("训练就绪：全部")], ["1", t("可直接训练")], ["0", t("有阻断问题")]], t("训练就绪")),
+    select("issue", [["", t("全部就绪问题")], ...Object.entries(taxonomy.readiness_issues || {}).map(([key, text]) => [key, tb(text)])], t("就绪问题")),
+    select("view", [["episode", t("按 episode（一行一次尝试）")], ["main,segment", t("主轨迹+分段")], ["subagent", t("只看子代理")], ["all", t("全部轨迹")]], t("显示单位")),
+    ctx.blind ? null : select("v4_tier", [["", t("v4 tier：全部")], ["any", t("有 v4 reward")], ["none", t("没有 v4 reward")], ["masked", "masked"], ["4", "tier 4"], ["3", "tier 3"], ["2", "tier 2"], ["1", "tier 1"], ["0", "tier 0"]], "v4 reward tier"),
+    ctx.blind ? null : select("v4_errors", [["", t("v4 报错：全部")], ["1", t("有报错（masked / 失败阶段 / deck fault / 重试）")], ["0", t("无报错")]], t("v4 reward 是否有报错")),
     ctx.blind ? null : rangeInput("v4_r_min", "R ≥"),
     ctx.blind ? null : rangeInput("v4_r_max", "R ≤"),
-    select("sort", [["imported", "最近导入"], ["steps", "步数最多"], ["errors", "报错最多"], ["task", "按任务分组"], ["title", "标题"], ...(ctx.blind ? [] : [["v4_r", "v4 R 高→低"], ["v4_r_asc", "v4 R 低→高"], ["v4_tier", "v4 tier 高→低"], ["v4_seconds", "v4 打分耗时最长"]])], "排序")
+    select("sort", [["imported", t("最近导入")], ["steps", t("步数最多")], ["errors", t("报错最多")], ["task", t("按任务分组")], ["title", t("标题")], ...(ctx.blind ? [] : [["v4_r", t("v4 R 高→低")], ["v4_r_asc", t("v4 R 低→高")], ["v4_tier", t("v4 tier 高→低")], ["v4_seconds", t("v4 打分耗时最长")]])], t("排序"))
   );
 
   function rangeInput(name, label) {
@@ -156,16 +159,17 @@ export async function renderLibrary(root, ctx, params, still) {
     try {
       const job = await api.batchJev(ctx.collection || null, 200);
       const finished = await pollJob(job.id, (state) => {
-        status.textContent = "Jev 分析 " + (state.done || 0) + " / " + (state.total ?? "…");
+        status.textContent = t("Jev 分析 {done} / {total}", { done: state.done || 0, total: state.total ?? "…" });
       });
       if (finished.status === "failed") throw new Error(finished.error);
-      status.textContent =
-        "Jev 完成 " + finished.result.analyzed + " 条 · " + formatCount(finished.result.input_tokens) + " tokens" +
-        (finished.result.failed.length ? " · 失败 " + finished.result.failed.length : "") +
-        (finished.result.stopped ? " · 连续失败已停止，" + finished.result.not_run + " 条没跑：" + finished.result.failed[finished.result.failed.length - 1].error : "");
+      status.textContent = [
+        t("Jev 完成 {n} 条 · {tokens} tokens", { n: finished.result.analyzed, tokens: formatCount(finished.result.input_tokens) }),
+        finished.result.failed.length ? t("失败 {n}", { n: finished.result.failed.length }) : null,
+        finished.result.stopped ? t("连续失败已停止，{n} 条没跑：{error}", { n: finished.result.not_run, error: finished.result.failed[finished.result.failed.length - 1].error }) : null,
+      ].filter(Boolean).join(" · ");
       if (still()) load();
     } catch (error) {
-      status.textContent = "Jev 失败：" + error.message;
+      status.textContent = t("Jev 失败：{error}", { error: error.message });
     } finally {
       batchButton.disabled = !ctx.jevAvailable;
     }
@@ -181,7 +185,7 @@ export async function renderLibrary(root, ctx, params, still) {
   }
 
   async function load() {
-    clear(table, empty("读取中…"));
+    clear(table, empty(t("读取中…")));
     const payload = await api.trajectories({
       collection: ctx.collection,
       outcome: ctx.blind ? "" : filters.outcome,
@@ -204,22 +208,22 @@ export async function renderLibrary(root, ctx, params, still) {
       limit: PAGE,
     });
     if (!still()) return;
-    status.textContent = formatCount(payload.total) + (filters.view === "episode" ? " 个 episode" : " 条");
+    status.textContent = filters.view === "episode" ? t("{n} 个 episode", { n: formatCount(payload.total) }) : t("{n} 条", { n: formatCount(payload.total) });
     if (!payload.items.length) {
-      clear(table, empty(ctx.collections.length ? "没有符合筛选的轨迹" : "左下角导入一个目录或文件开始"));
+      clear(table, empty(ctx.collections.length ? t("没有符合筛选的轨迹") : t("左下角导入一个目录或文件开始")));
     } else {
       clear(
         table,
         h(
           "div",
           { class: "row head" },
-          h("span", { title: "勾选两条进行对比" }, "比"),
-          h("span", {}, "轨迹"),
-          h("span", {}, "模型 / 来源"),
-          h("span", { class: "num" }, "步"),
-          h("span", { class: "num" }, "工具错"),
-          h("span", {}, "信号"),
-          h("span", {}, "阅读")
+          h("span", { title: t("勾选两条进行对比") }, t("比")),
+          h("span", {}, t("轨迹")),
+          h("span", {}, t("模型 / 来源")),
+          h("span", { class: "num" }, t("步")),
+          h("span", { class: "num" }, t("工具错")),
+          h("span", {}, t("信号")),
+          h("span", {}, t("阅读"))
         ),
         payload.items.map((item) => (filters.view === "episode" ? episodeRow(item, ctx) : row(item, ctx)))
       );
@@ -228,9 +232,9 @@ export async function renderLibrary(root, ctx, params, still) {
     const last = Math.min(payload.total, filters.offset + payload.items.length);
     clear(
       pager,
-      h("button", { type: "button", disabled: filters.offset <= 0, onclick: () => update({ offset: Math.max(0, filters.offset - PAGE) }) }, "上一页"),
+      h("button", { type: "button", disabled: filters.offset <= 0, onclick: () => update({ offset: Math.max(0, filters.offset - PAGE) }) }, t("上一页")),
       h("span", {}, first + "–" + last + " / " + payload.total),
-      h("button", { type: "button", disabled: filters.offset + PAGE >= payload.total, onclick: () => update({ offset: filters.offset + PAGE }) }, "下一页")
+      h("button", { type: "button", disabled: filters.offset + PAGE >= payload.total, onclick: () => update({ offset: filters.offset + PAGE }) }, t("下一页"))
     );
   }
   await load();
@@ -242,7 +246,7 @@ function episodeRow(item, ctx) {
   if (!episode || episode.members <= 1) return row(item, ctx);
   const members = h("div", { class: "episode-members", hidden: true });
   let loaded = false;
-  const toggle = h("button", { type: "button", class: "episode-toggle", "aria-expanded": "false", title: "展开 episode 成员" }, "▸");
+  const toggle = h("button", { type: "button", class: "episode-toggle", "aria-expanded": "false", title: t("展开 episode 成员") }, "▸");
   toggle.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -252,24 +256,24 @@ function episodeRow(item, ctx) {
     toggle.setAttribute("aria-expanded", String(open));
     if (open && !loaded) {
       loaded = true;
-      clear(members, empty("读取中…"));
+      clear(members, empty(t("读取中…")));
       try {
         const payload = await api.trajectories({ collection: item.collection, group_key: item.group_key, sort: "episode", limit: 500 });
         clear(
           members,
           payload.items.map((member) => row(member, ctx, true)),
-          payload.total > payload.items.length ? empty("只列出前 " + payload.items.length + " / " + payload.total + " 条成员") : null
+          payload.total > payload.items.length ? empty(t("只列出前 {shown} / {total} 条成员", { shown: payload.items.length, total: payload.total })) : null
         );
       } catch (error) {
-        clear(members, empty("读取失败：" + error.message));
+        clear(members, empty(t("读取失败：{error}", { error: error.message })));
       }
     }
   });
   const parts = [];
-  if (episode.threads > 1) parts.push(episode.threads + " 段");
-  if (episode.missing_segments?.length) parts.push("缺第 " + episode.missing_segments.join("、") + " 段");
-  if (episode.subagents) parts.push(episode.subagents + " 个子代理");
-  if (episode.head_missing) parts.push("主轨迹未导入");
+  if (episode.threads > 1) parts.push(t("{n} 段", { n: episode.threads }));
+  if (episode.missing_segments?.length) parts.push(t("缺第 {list} 段", { list: episode.missing_segments.join(t("、")) }));
+  if (episode.subagents) parts.push(t("{n} 个子代理", { n: episode.subagents }));
+  if (episode.head_missing) parts.push(t("主轨迹未导入"));
   return h(
     "div",
     { class: "episode" },
@@ -285,27 +289,27 @@ function episodeRow(item, ctx) {
 
 function row(item, ctx, nested = false, episode = null) {
   const status = ctx.blind ? "hidden" : item.outcome_status;
-  const flags = (item.flags || []).map((key) => chip(ctx.taxonomy.flags[key] || key, "flag"));
-  (episode?.subagentFlags || []).forEach((key) => flags.push(chip("子代理·" + (ctx.taxonomy.flags[key] || key), "flag")));
+  const flags = (item.flags || []).map((key) => chip(tb(ctx.taxonomy.flags[key] || key), "flag"));
+  (episode?.subagentFlags || []).forEach((key) => flags.push(chip(t("子代理·{flag}", { flag: tb(ctx.taxonomy.flags[key] || key) }), "flag")));
   const blocking = (item.readiness?.issues || []).filter((issue) => issue.severity === "block");
   if (blocking.length) {
-    const names = blocking.map((issue) => ctx.taxonomy.readiness_issues?.[issue.key] || issue.key);
-    flags.push(chip("不可直接训练", "bad", { title: names.join("、") }));
+    const names = blocking.map((issue) => tb(ctx.taxonomy.readiness_issues?.[issue.key] || issue.key));
+    flags.push(chip(t("不可直接训练"), "bad", { title: names.join(t("、")) }));
   }
   const jev = item.jev_summary || {};
-  if (jev.turning_candidates?.length) flags.push(chip("Jev 转折候选 " + jev.turning_candidates.length, "jev"));
-  if (jev.claims_done_unverified?.length) flags.push(chip("Jev 未验证即宣称完成", "jev"));
-  if (!ctx.blind && jev.consistency === "overclaim") flags.push(chip("声称完成但评分失败", "bad"));
+  if (jev.turning_candidates?.length) flags.push(chip(t("Jev 转折候选 {n}", { n: jev.turning_candidates.length }), "jev"));
+  if (jev.claims_done_unverified?.length) flags.push(chip(t("Jev 未验证即宣称完成"), "jev"));
+  if (!ctx.blind && jev.consistency === "overclaim") flags.push(chip(t("声称完成但评分失败"), "bad"));
   const labels = (item.review_labels || []).map((key) => {
     const found = ctx.taxonomy.labels.find((entry) => entry.key === key);
-    return chip(found ? found.label : key, "label");
+    return chip(found ? tb(found.label) : key, "label");
   });
   const role = item.group_role && item.group_role !== "main" ? ROLE_LABELS[item.group_role] + (item.segment && item.group_role === "segment" ? " " + item.segment : "") : "";
   const pick = h("input", {
     type: "checkbox",
     class: "pick",
-    title: "加入对比",
-    "aria-label": "加入对比",
+    title: t("加入对比"),
+    "aria-label": t("加入对比"),
     checked: ctx.compareSelection.includes(item.id),
     onclick: (event) => {
       event.stopPropagation();
@@ -313,15 +317,15 @@ function row(item, ctx, nested = false, episode = null) {
       ctx.onCompareChange?.();
     },
   });
-  const kind = item.extra?.subagent_type ? item.extra.subagent_type + (item.extra.description ? "：" + item.extra.description : "") : "";
+  const kind = item.extra?.subagent_type ? (item.extra.description ? t("{type}：{description}", { type: item.extra.subagent_type, description: item.extra.description }) : item.extra.subagent_type) : "";
   return h(
     "a",
     { class: "row" + (nested ? " nested" : ""), href: "#/t/" + encodeURIComponent(item.id), onclick: (event) => { if (event.target === pick) event.preventDefault(); ctx.queueNav = null; } },
-    h("span", { class: "row-pick" }, episode?.toggle || pick, nested ? null : h("span", { class: "dot " + (status === "hidden" ? "muted" : outcomeTone(status)), title: status === "hidden" ? "盲判模式" : OUTCOME_LABELS[status] })),
+    h("span", { class: "row-pick" }, episode?.toggle || pick, nested ? null : h("span", { class: "dot " + (status === "hidden" ? "muted" : outcomeTone(status)), title: status === "hidden" ? t("盲判模式") : OUTCOME_LABELS[status] })),
     h(
       "span",
       { class: "cell-title" },
-      h("strong", {}, nested ? [role || "主轨迹", kind].filter(Boolean).join(" · ") : item.title || item.run_id),
+      h("strong", {}, nested ? [role || t("主轨迹"), kind].filter(Boolean).join(" · ") : item.title || item.run_id),
       h("small", {}, [item.task_id || "", nested ? "" : role, item.run_id].filter(Boolean).join(" · ")),
       episode?.summary ? h("small", { class: episode.warn ? "episode-summary warn" : "episode-summary" }, episode.summary) : null
     ),
@@ -329,7 +333,7 @@ function row(item, ctx, nested = false, episode = null) {
     h("span", { class: "num" }, String(item.steps ?? "—")),
     h("span", { class: "num" + (item.tool_errors ? " bad-text" : "") }, String(item.tool_errors ?? 0)),
     h("span", { class: "chips" }, flags),
-    h("span", { class: "chips" }, item.reviewed_at ? [chip("已读", "ok"), ...labels] : chip("未读", "muted"))
+    h("span", { class: "chips" }, item.reviewed_at ? [chip(t("已读"), "ok"), ...labels] : chip(t("未读"), "muted"))
   );
 }
 
@@ -340,10 +344,10 @@ function v4Badge(item) {
   const tone = masked ? "warn" : item.v4_tier >= 3 ? "ok" : item.v4_tier >= 1 ? "info" : "bad";
   const text = "v4 " + (item.v4_tier ?? "—") + " · " + formatReward(item.v4_r, masked) + (item.v4_errors ? " ⚠" : "");
   const title = [
-    "v4 reward（" + item.v4_label + "）",
+    t("v4 reward（{label}）", { label: item.v4_label }),
     item.v4_tier_name ? "tier " + item.v4_tier + " " + item.v4_tier_name : null,
-    item.v4_seconds != null ? "打分 " + Number(item.v4_seconds).toFixed(0) + "s" : null,
-    item.v4_errors ? "有报错 / 重试" : null,
+    item.v4_seconds != null ? t("打分 {seconds}s", { seconds: Number(item.v4_seconds).toFixed(0) }) : null,
+    item.v4_errors ? t("有报错 / 重试") : null,
   ].filter(Boolean).join(" · ");
   return chip(text, "v4-badge " + tone, { title });
 }

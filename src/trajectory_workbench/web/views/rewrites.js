@@ -1,6 +1,7 @@
 import { api, pollJob } from "../api.js";
 import { chip, clear, details, empty, h } from "../dom.js";
 import { formatCount } from "../presentation.mjs";
+import { t, tb } from "../i18n.mjs";
 import { renderOverview, renderQueue } from "./rewrite-batch.js";
 
 /*
@@ -9,15 +10,15 @@ import { renderOverview, renderQueue } from "./rewrite-batch.js";
  * (any harness, any pipeline); pipeline annotations, when a batch has them, explain changes.
  */
 
-const KIND_LABELS = { mcp: "MCP", tool: "工具", skill: "Skill", subagent: "子代理类型", hook: "Hook", instruction: "指令段落", file: "harness 文件" };
-const USE_LABELS = { calls: "调用", files: "参数里", mentions: "提到", outputs: "用到其产出" };
-const GATE = { include: ["可进", "ok"], review: ["待看", "warn"], exclude: ["不进", "bad"] };
-const FIELD_LABELS = { thinking: "思考", text: "正文" };
-const ROW_LABELS = { changed: "改动", merged: "合并", added: "新增", removed: "删除", same: "未改", system_prompt: "系统提示" };
-const SECTION_CHANGE = { removed: "删掉", added: "新增", changed: "改了", same: "未改" };
-const DECLARATION_CHANGE = { removed: "删掉", added: "新增", redefined: "重新定义", same: "未改" };
-const TOOL_CHANGE = { removed: "删掉的调用", added: "新增的调用", changed: "改了的调用" };
-const ALIGN_LABELS = { index_map: "按流水线的消息映射对齐", inferred: "按内容推断对齐" };
+const KIND_LABELS = { mcp: "MCP", tool: t("工具"), skill: "Skill", subagent: t("子代理类型"), hook: "Hook", instruction: t("指令段落"), file: t("harness 文件") };
+const USE_LABELS = { calls: t("调用"), files: t("参数里"), mentions: t("提到"), outputs: t("用到其产出") };
+const GATE = { include: [t("可进"), "ok"], review: [t("待看"), "warn"], exclude: [t("不进"), "bad"] };
+const FIELD_LABELS = { thinking: t("思考"), text: t("正文") };
+const ROW_LABELS = { changed: t("改动"), merged: t("合并"), added: t("新增"), removed: t("删除"), same: t("未改"), system_prompt: t("系统提示") };
+const SECTION_CHANGE = { removed: t("删掉"), added: t("新增"), changed: t("改了"), same: t("未改") };
+const DECLARATION_CHANGE = { removed: t("删掉"), added: t("新增"), redefined: t("重新定义"), same: t("未改") };
+const TOOL_CHANGE = { removed: t("删掉的调用"), added: t("新增的调用"), changed: t("改了的调用") };
+const ALIGN_LABELS = { index_map: t("按流水线的消息映射对齐"), inferred: t("按内容推断对齐") };
 const STATUS_TONE = { rewritten: "ok", blocked: "bad", unsupported: "bad", spec_mismatch: "bad", error: "bad" };
 // Unchanged text kept on each side of a change; the rest folds.
 const FOLD_KEEP = 240;
@@ -31,37 +32,37 @@ export async function renderRewrites(root, ctx, parts, params, still) {
 
 function annotationLabel(annotations) {
   const meta = annotations.meta || {};
-  const adapter = annotations.adapter === "rewrite-run-dir" ? "改写运行目录" : "注解 JSONL";
-  return [adapter, meta.locator ? "定位 " + meta.locator : null, meta.prompt ? "prompt " + String(meta.prompt).slice(0, 8) : null].filter(Boolean).join(" · ");
+  const adapter = annotations.adapter === "rewrite-run-dir" ? t("改写运行目录") : t("注解 JSONL");
+  return [adapter, meta.locator ? t("定位 {locator}", { locator: meta.locator }) : null, meta.prompt ? "prompt " + String(meta.prompt).slice(0, 8) : null].filter(Boolean).join(" · ");
 }
 
 // ---- batches ---------------------------------------------------------------------------
 
 async function renderBatches(root, ctx, still) {
-  clear(root, empty("读取改写批次…"));
+  clear(root, empty(t("读取改写批次…")));
   const payload = await api.rewriteBatches();
   if (!still()) return;
   const list = payload.batches.length
     ? h(
         "div",
         { class: "explore-table rr-table rr-batches" },
-        h("div", { class: "explore-row head" }, h("span", {}, "批次"), h("span", {}, "原始 → 改写后"), h("span", {}, "流水线注解"), h("span", { class: "num" }, "已判定"), h("span", {}, "创建时间")),
+        h("div", { class: "explore-row head" }, h("span", {}, t("批次")), h("span", {}, t("原始 → 改写后")), h("span", {}, t("流水线注解")), h("span", { class: "num" }, t("已判定")), h("span", {}, t("创建时间"))),
         payload.batches.map((batch) =>
           h(
             "a",
             { class: "explore-row", href: "#/rewrites/" + encodeURIComponent(batch.id) },
             h("strong", {}, batch.name),
             h("span", {}, batch.original_collection + " → " + batch.rewritten_collection),
-            h("span", { class: "muted" }, batch.annotations ? annotationLabel(batch.annotations) : "无，只看 diff"),
+            h("span", { class: "muted" }, batch.annotations ? annotationLabel(batch.annotations) : t("无，只看 diff")),
             h("span", { class: "num" }, String(batch.verdicts)),
             h("span", { class: "muted" }, (batch.created_at || "").slice(0, 16).replace("T", " "))
           )
         )
       )
-    : empty("还没有改写批次。用右边的表单新建，或在命令行运行 trajectory-workbench rewrite-batch。");
+    : empty(t("还没有改写批次。用右边的表单新建，或在命令行运行 trajectory-workbench rewrite-batch。"));
   clear(
     root,
-    h("header", { class: "page-head" }, h("div", {}, h("span", { class: "eyebrow" }, "改写审阅"), h("h1", {}, "改写批次"))),
+    h("header", { class: "page-head" }, h("div", {}, h("span", { class: "eyebrow" }, t("改写审阅")), h("h1", {}, t("改写批次")))),
     h("div", { class: "rr-batches-grid" }, h("section", { class: "panel explore-card" }, list), createForm(ctx))
   );
 }
@@ -73,30 +74,30 @@ function createForm(ctx) {
   const form = h(
     "form",
     { class: "panel rr-create" },
-    h("h2", { class: "mini-title" }, "新建批次"),
-    h("label", {}, "名字", h("input", { type: "text", name: "name", required: true, placeholder: "如 pilot_skills_v2", autocomplete: "off" })),
-    h("label", {}, "原始集合", select("original", "选原始集合")),
-    h("label", {}, "改写后集合（已导入）", select("rewritten", "选改写后集合")),
-    h("label", {}, "或者：改写后轨迹的路径（先导入）", h("input", { type: "text", name: "rewritten_path", placeholder: "/abs/path/rewritten.jsonl" })),
-    h("label", {}, "流水线注解（可选）", h("input", { type: "text", name: "annotations", placeholder: "注解 .jsonl 或改写运行目录" })),
-    h("button", { type: "submit" }, "建批次"),
+    h("h2", { class: "mini-title" }, t("新建批次")),
+    h("label", {}, t("名字"), h("input", { type: "text", name: "name", required: true, placeholder: t("如 pilot_skills_v2"), autocomplete: "off" })),
+    h("label", {}, t("原始集合"), select("original", t("选原始集合"))),
+    h("label", {}, t("改写后集合（已导入）"), select("rewritten", t("选改写后集合"))),
+    h("label", {}, t("或者：改写后轨迹的路径（先导入）"), h("input", { type: "text", name: "rewritten_path", placeholder: "/abs/path/rewritten.jsonl" })),
+    h("label", {}, t("流水线注解（可选）"), h("input", { type: "text", name: "annotations", placeholder: t("注解 .jsonl 或改写运行目录") })),
+    h("button", { type: "submit" }, t("建批次")),
     status,
-    h("p", { class: "hint" }, "两个集合按样本 id 配对。没有注解也能用：diff、结构变化、harness 增减和残留都由平台算。注解只读。")
+    h("p", { class: "hint" }, t("两个集合按样本 id 配对。没有注解也能用：diff、结构变化、harness 增减和残留都由平台算。注解只读。"))
   );
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const fields = Object.fromEntries([...new FormData(form).entries()].map(([key, value]) => [key, String(value).trim()]).filter(([, value]) => value));
     if (!fields.rewritten && !fields.rewritten_path) {
-      status.textContent = "选一个改写后集合，或填改写后轨迹的路径";
+      status.textContent = t("选一个改写后集合，或填改写后轨迹的路径");
       return;
     }
     const submit = form.querySelector("button[type=submit]");
     submit.disabled = true;
-    status.textContent = "建批次…";
+    status.textContent = t("建批次…");
     try {
       const job = await api.createRewriteBatch(fields);
       const finished = await pollJob(job.id, (state) => {
-        status.textContent = state.message ? "导入 " + (state.done || 0) + " 条 · " + state.message : "建批次…";
+        status.textContent = state.message ? t("导入 {done} 条 · {message}", { done: state.done || 0, message: tb(state.message) }) : t("建批次…");
       });
       if (finished.status === "failed") throw new Error(finished.error);
       if (fields.rewritten_path) await ctx.refreshCollections();
@@ -113,7 +114,7 @@ function createForm(ctx) {
 // ---- one record ----------------------------------------------------------------------
 
 async function renderRecord(root, ctx, batchId, sampleId, still, params = new URLSearchParams()) {
-  clear(root, empty("对齐并比较…"));
+  clear(root, empty(t("对齐并比较…")));
   const [record, listing] = await Promise.all([
     api.rewriteRecord(batchId, sampleId),
     ctx.rewriteNav?.batch === batchId ? Promise.resolve(null) : api.rewriteBatch(batchId).catch(() => null),
@@ -143,25 +144,25 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
   const rowHome = new Map(); // row index → element that shows it
 
   const head = h("header", { class: "rr-head panel" });
-  const map = h("div", { class: "rr-map", role: "list", "aria-label": "改写迷你地图" });
+  const map = h("div", { class: "rr-map", role: "list", "aria-label": t("改写迷你地图") });
   const main = h("section", { class: "rr-main" });
   const inspector = h("aside", { class: "rr-inspector" });
-  const missButton = h("button", { type: "button", class: "rr-miss-button hidden" }, "标为漏改");
+  const missButton = h("button", { type: "button", class: "rr-miss-button hidden" }, t("标为漏改"));
   const shortcuts = h(
     "details",
     { class: "shortcuts" },
-    h("summary", {}, "快捷键"),
+    h("summary", {}, t("快捷键")),
     h(
       "dl",
       {},
       [
-        ["j / k", "下一处 / 上一处改动"],
-        ["1 / 2 / 3", "对 / 错 / 待定（错之后按 1–6 选类型）"],
-        ["J / K", "下一条 / 上一条记录"],
-        ["t", "训练视角：只看改写后的正文"],
-        ["o", "当前改动所在步左右并排"],
-        ["e", "展开 / 折叠全部"],
-        ["Esc", "回到本条概况"],
+        ["j / k", t("下一处 / 上一处改动")],
+        ["1 / 2 / 3", t("对 / 错 / 待定（错之后按 1–6 选类型）")],
+        ["J / K", t("下一条 / 上一条记录")],
+        ["t", t("训练视角：只看改写后的正文")],
+        ["o", t("当前改动所在步左右并排")],
+        ["e", t("展开 / 折叠全部")],
+        ["Esc", t("回到本条概况")],
       ].map(([key, text]) => h("div", {}, h("dt", {}, h("kbd", {}, key)), h("dd", {}, text)))
     )
   );
@@ -189,36 +190,36 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
     const [gateLabel, gateTone] = GATE[state.gate.decision];
     const recorded = record.changes.filter((change) => change.annotations?.length).length;
     const facts = [
-      record.original ? "原始 " + record.original.steps + " 步" : "原始集合里没有",
-      record.rewritten ? "改写后 " + record.rewritten.steps + " 步" : "改写后集合里没有",
+      record.original ? t("原始 {n} 步", { n: record.original.steps }) : t("原始集合里没有"),
+      record.rewritten ? t("改写后 {n} 步", { n: record.rewritten.steps }) : t("改写后集合里没有"),
       record.aligned_by ? ALIGN_LABELS[record.aligned_by] : null,
-      record.changes.length + " 处改动" + (record.batch.annotations ? "（流水线记录 " + recorded + "）" : ""),
+      record.batch.annotations ? t("{n} 处改动（流水线记录 {recorded}）", { n: record.changes.length, recorded }) : t("{n} 处改动", { n: record.changes.length }),
     ].filter(Boolean);
     clear(
       head,
       h(
         "div",
         { class: "rr-identity" },
-        h("span", { class: "eyebrow" }, h("a", { href: "#/rewrites/" + encodeURIComponent(batchId) }, "改写审阅 · " + record.batch.name)),
+        h("span", { class: "eyebrow" }, h("a", { href: "#/rewrites/" + encodeURIComponent(batchId) }, t("改写审阅 · {name}", { name: record.batch.name }))),
         h("h1", {}, sampleId),
         h(
           "div",
           { class: "rr-facts" },
           facts.join(" · "),
-          record.status ? chip("流水线：" + record.status.value, STATUS_TONE[record.status.value] || "muted") : null,
-          record.original ? h("a", { class: "link-button", href: "#/t/" + encodeURIComponent(record.original.id) }, "原始轨迹") : null,
-          record.rewritten ? h("a", { class: "link-button", href: "#/t/" + encodeURIComponent(record.rewritten.id) }, "改写后轨迹") : null
+          record.status ? chip(t("流水线：{status}", { status: record.status.value }), STATUS_TONE[record.status.value] || "muted") : null,
+          record.original ? h("a", { class: "link-button", href: "#/t/" + encodeURIComponent(record.original.id) }, t("原始轨迹")) : null,
+          record.rewritten ? h("a", { class: "link-button", href: "#/t/" + encodeURIComponent(record.rewritten.id) }, t("改写后轨迹")) : null
         ),
         record.segments?.length > 1
           ? h(
               "div",
               { class: "rr-segments" },
-              h("span", { class: "muted" }, "同一 episode："),
+              h("span", { class: "muted" }, t("同一 episode：")),
               record.segments.map((segment) =>
                 h(
                   "a",
                   { class: "rr-segment" + (segment.current ? " current" : ""), href: "#/rewrites/" + encodeURIComponent(batchId) + "/r/" + encodeURIComponent(segment.sample_id) },
-                  segment.segment ? "第 " + segment.segment + " 段" : segment.role === "main" ? "主轨迹" : segment.sample_id
+                  segment.segment ? t("第 {n} 段", { n: segment.segment }) : segment.role === "main" ? t("主轨迹") : segment.sample_id
                 )
               )
             )
@@ -227,15 +228,15 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
       h(
         "div",
         { class: "rr-side-head" },
-        h("div", { class: "rr-gate " + gateTone, title: state.gate.reasons.map((reason) => reason.text).join("\n") }, h("strong", {}, gateLabel), h("span", {}, state.gate.reasons[0]?.text || "没有待处理的问题")),
-        h("div", { class: "rr-progress" }, "已判 " + judged + " / " + record.changes.length + (errors ? " · 错 " + errors : "") + (misses ? " · 漏改 " + misses : "")),
+        h("div", { class: "rr-gate " + gateTone, title: state.gate.reasons.map((reason) => tb(reason.text)).join("\n") }, h("strong", {}, gateLabel), h("span", {}, tb(state.gate.reasons[0]?.text) || t("没有待处理的问题"))),
+        h("div", { class: "rr-progress" }, t("已判 {judged} / {total}", { judged, total: record.changes.length }) + (errors ? " · " + t("错 {n}", { n: errors }) : "") + (misses ? " · " + t("漏改 {n}", { n: misses }) : "")),
         h(
           "div",
           { class: "inline" },
-          h("button", { type: "button", class: "secondary", "aria-pressed": String(state.training), title: "只看改写后的正文（t）", onclick: toggleTraining }, "训练视角"),
-          h("button", { type: "button", class: "secondary", disabled: position <= 0, title: "上一条记录（K）", onclick: () => gotoRecord(-1) }, "←"),
+          h("button", { type: "button", class: "secondary", "aria-pressed": String(state.training), title: t("只看改写后的正文（t）"), onclick: toggleTraining }, t("训练视角")),
+          h("button", { type: "button", class: "secondary", disabled: position <= 0, title: t("上一条记录（K）"), onclick: () => gotoRecord(-1) }, "←"),
           h("span", { class: "muted" }, position >= 0 ? position + 1 + " / " + nav.length : ""),
-          h("button", { type: "button", class: "secondary", disabled: position < 0 || position >= nav.length - 1, title: "下一条记录（J）", onclick: () => gotoRecord(1) }, "→"),
+          h("button", { type: "button", class: "secondary", disabled: position < 0 || position >= nav.length - 1, title: t("下一条记录（J）"), onclick: () => gotoRecord(1) }, "→"),
           shortcuts
         )
       )
@@ -260,7 +261,7 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
         h("button", {
           type: "button",
           class: ["rr-cell", "k-" + (row.system_prompt ? "system" : row.kind), row.residue?.length && "residue", rowState(row)].filter(Boolean).join(" "),
-          title: "#" + (row.after?.step ?? row.before[0]?.step) + " · " + (row.system_prompt ? "系统提示" : ROW_LABELS[row.kind]) + (row.residue?.length ? " · 残留" : ""),
+          title: "#" + (row.after?.step ?? row.before[0]?.step) + " · " + (row.system_prompt ? t("系统提示") : ROW_LABELS[row.kind]) + (row.residue?.length ? " · " + t("残留") : ""),
           onclick: () => showRow(index),
         })
       )
@@ -271,10 +272,10 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
     return h(
       "div",
       { class: "rr-legend" },
-      [["changed", "改动"], ["merged", "合并"], ["removed", "删除"], ["added", "新增"], ["same", "未改"]].map(([key, label]) => h("span", { class: "legend k-" + key }, label)),
-      h("span", { class: "legend residue" }, "残留"),
-      h("span", { class: "legend v-done" }, "已判"),
-      h("span", { class: "legend v-error" }, "有错")
+      [["changed", t("改动")], ["merged", t("合并")], ["removed", t("删除")], ["added", t("新增")], ["same", t("未改")]].map(([key, label]) => h("span", { class: "legend k-" + key }, label)),
+      h("span", { class: "legend residue" }, t("残留")),
+      h("span", { class: "legend v-done" }, t("已判")),
+      h("span", { class: "legend v-error" }, t("有错"))
     );
   }
 
@@ -287,51 +288,51 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
     return h(
       "div",
       {},
-      h("div", { class: "chips" }, chips.slice(0, limit), h("button", { type: "button", class: "link-button", onclick: (event) => { rest.classList.remove("hidden"); event.target.remove(); } }, "还有 " + (chips.length - limit) + " 个")),
+      h("div", { class: "chips" }, chips.slice(0, limit), h("button", { type: "button", class: "link-button", onclick: (event) => { rest.classList.remove("hidden"); event.target.remove(); } }, t("还有 {n} 个", { n: chips.length - limit }))),
       rest
     );
   }
 
   function harnessCard() {
     const delta = record.harness;
-    if (!delta) return h("section", { class: "panel rr-harness" }, h("strong", {}, "harness 增减"), h("p", { class: "hint" }, "原始集合里没有这条样本，无法比较。"));
+    if (!delta) return h("section", { class: "panel rr-harness" }, h("strong", {}, t("harness 增减")), h("p", { class: "hint" }, t("原始集合里没有这条样本，无法比较。")));
     const sections = delta.sections.filter((section) => section.change !== "same");
     const tools = delta.tools.filter((tool) => tool.change !== "same");
     const summary = [
-      "组件：删掉 " + delta.removed.length + " · 新增 " + delta.added.length + " · 保留 " + delta.kept.length,
-      "系统提示：" + (sections.length ? sections.map((section) => SECTION_CHANGE[section.change] + "「" + (section.heading || "开头") + "」").slice(0, 3).join("、") + (sections.length > 3 ? " 等 " + sections.length + " 段" : "") : "没变"),
-      "工具声明：" + (tools.length ? tools.map((tool) => DECLARATION_CHANGE[tool.change] + " " + tool.name.split("__").pop()).slice(0, 3).join("、") + (tools.length > 3 ? " 等 " + tools.length + " 个" : "") : "没变"),
+      t("组件：删掉 {removed} · 新增 {added} · 保留 {kept}", { removed: delta.removed.length, added: delta.added.length, kept: delta.kept.length }),
+      t("系统提示：{list}", { list: sections.length ? sections.map((section) => t("{change}「{heading}」", { change: SECTION_CHANGE[section.change], heading: section.heading || t("开头") })).slice(0, 3).join(t("、")) + (sections.length > 3 ? " " + t("等 {n} 段", { n: sections.length }) : "") : t("没变") }),
+      t("工具声明：{list}", { list: tools.length ? tools.map((tool) => DECLARATION_CHANGE[tool.change] + " " + tool.name.split("__").pop()).slice(0, 3).join(t("、")) + (tools.length > 3 ? " " + t("等 {n} 个", { n: tools.length }) : "") : t("没变") }),
     ];
     const sectionRows = delta.sections.map((section) => {
       const body = h("div", { class: "rr-section-diff hidden" });
       const toggle = section.diff
-        ? h("button", { type: "button", class: "link-button", onclick: () => { if (!body.childNodes.length) body.append(renderSegments(section.diff, { selectable: false })); body.classList.toggle("hidden"); } }, "看内容")
+        ? h("button", { type: "button", class: "link-button", onclick: () => { if (!body.childNodes.length) body.append(renderSegments(section.diff, { selectable: false })); body.classList.toggle("hidden"); } }, t("看内容"))
         : null;
       return h(
         "div",
         { class: "rr-section" },
-        h("div", { class: "rr-section-row" }, chip(SECTION_CHANGE[section.change], section.change === "removed" ? "bad" : section.change === "added" ? "ok" : section.change === "changed" ? "warn" : "muted"), h("span", {}, section.heading || "（开头）"), section.stock ? chip("原生", "muted") : chip("harness 加的", "layer"), h("span", { class: "muted" }, formatCount(section.before_chars) + " → " + formatCount(section.after_chars) + " 字"), toggle),
+        h("div", { class: "rr-section-row" }, chip(SECTION_CHANGE[section.change], section.change === "removed" ? "bad" : section.change === "added" ? "ok" : section.change === "changed" ? "warn" : "muted"), h("span", {}, section.heading || t("（开头）")), section.stock ? chip(t("原生"), "muted") : chip(t("harness 加的"), "layer"), h("span", { class: "muted" }, t("{before} → {after} 字", { before: formatCount(section.before_chars), after: formatCount(section.after_chars) })), toggle),
         body
       );
     });
     const toolRows = tools.map((tool) => {
-      const body = tool.diff ? details("描述的改动", renderSegments(tool.diff, { selectable: false })) : null;
-      return h("div", { class: "rr-section" }, h("div", { class: "rr-section-row" }, chip(DECLARATION_CHANGE[tool.change], tool.change === "removed" ? "bad" : tool.change === "added" ? "ok" : "warn"), h("code", {}, tool.name), tool.native ? chip("原生", "muted") : null), body);
+      const body = tool.diff ? details(t("描述的改动"), renderSegments(tool.diff, { selectable: false })) : null;
+      return h("div", { class: "rr-section" }, h("div", { class: "rr-section-row" }, chip(DECLARATION_CHANGE[tool.change], tool.change === "removed" ? "bad" : tool.change === "added" ? "ok" : "warn"), h("code", {}, tool.name), tool.native ? chip(t("原生"), "muted") : null), body);
     });
     return h(
       "section",
       { class: "panel rr-harness" },
-      h("div", { class: "rr-harness-head" }, h("strong", {}, "harness 增减"), h("span", { class: "muted" }, summary.join("　"))),
+      h("div", { class: "rr-harness-head" }, h("strong", {}, t("harness 增减")), h("span", { class: "muted" }, summary.join("　"))),
       details(
-        "展开",
+        t("展开"),
         h(
           "div",
           { class: "rr-harness-body" },
-          h("div", { class: "rr-harness-group" }, h("span", { class: "rr-label" }, "删掉的组件（改写后仍用到就是残留）"), delta.removed.length ? componentChips(delta.removed, "bad") : h("span", { class: "muted" }, "无")),
-          h("div", { class: "rr-harness-group" }, h("span", { class: "rr-label" }, "新增的组件"), delta.added.length ? componentChips(delta.added, "ok") : h("span", { class: "muted" }, "无")),
-          h("div", { class: "rr-harness-group" }, h("span", { class: "rr-label" }, "改写后仍超出原生 agent 的组件（只作提示）"), delta.kept.length + delta.added.length ? componentChips([...delta.kept, ...delta.added], "muted") : h("span", { class: "muted" }, "无，改写后就是原生 agent")),
-          h("div", { class: "rr-harness-group" }, h("span", { class: "rr-label" }, "系统提示（按一级标题）"), sectionRows),
-          tools.length ? h("div", { class: "rr-harness-group" }, h("span", { class: "rr-label" }, "工具声明"), toolRows) : null
+          h("div", { class: "rr-harness-group" }, h("span", { class: "rr-label" }, t("删掉的组件（改写后仍用到就是残留）")), delta.removed.length ? componentChips(delta.removed, "bad") : h("span", { class: "muted" }, t("无"))),
+          h("div", { class: "rr-harness-group" }, h("span", { class: "rr-label" }, t("新增的组件")), delta.added.length ? componentChips(delta.added, "ok") : h("span", { class: "muted" }, t("无"))),
+          h("div", { class: "rr-harness-group" }, h("span", { class: "rr-label" }, t("改写后仍超出原生 agent 的组件（只作提示）")), delta.kept.length + delta.added.length ? componentChips([...delta.kept, ...delta.added], "muted") : h("span", { class: "muted" }, t("无，改写后就是原生 agent"))),
+          h("div", { class: "rr-harness-group" }, h("span", { class: "rr-label" }, t("系统提示（按一级标题）")), sectionRows),
+          tools.length ? h("div", { class: "rr-harness-group" }, h("span", { class: "rr-label" }, t("工具声明")), toolRows) : null
         )
       )
     );
@@ -353,9 +354,9 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
         h(
           "section",
           { class: "panel rr-empty" },
-          h("strong", {}, record.rewritten ? "没有可比较的步骤" : "改写后集合里没有这条样本"),
-          record.status?.reason ? h("p", { class: "hint" }, "流水线：" + record.status.reason) : null,
-          record.original ? h("a", { class: "link-button", href: "#/t/" + encodeURIComponent(record.original.id) }, "看原始轨迹 →") : null
+          h("strong", {}, record.rewritten ? t("没有可比较的步骤") : t("改写后集合里没有这条样本")),
+          record.status?.reason ? h("p", { class: "hint" }, t("流水线：{status}", { status: record.status.reason })) : null,
+          record.original ? h("a", { class: "link-button", href: "#/t/" + encodeURIComponent(record.original.id) }, t("看原始轨迹 →")) : null
         )
       );
       return;
@@ -381,26 +382,26 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
   }
 
   function stepLabel(row) {
-    return row.after ? "#" + row.after.step : "原 #" + row.before.map((item) => item.step).join(" #");
+    return row.after ? "#" + row.after.step : t("原 #{steps}", { steps: row.before.map((item) => item.step).join(" #") });
   }
 
   function roleLabel(ref) {
     if (!ref) return "";
-    if (ref.role === "tool" || ref.role === "assistant") return "模型";
-    return ref.layer === "hook" ? "Hook" : ref.role === "user" ? "用户" : "系统";
+    if (ref.role === "tool" || ref.role === "assistant") return t("模型");
+    return ref.layer === "hook" ? "Hook" : ref.role === "user" ? t("用户") : t("系统");
   }
 
   function sameRun(indices) {
     const box = h("div", { class: "rr-run" });
     const steps = indices.map((index) => record.rows[index].after.step);
-    const label = "· · · " + indices.length + " 步未改（#" + steps[0] + (steps.length > 1 ? "–#" + steps[steps.length - 1] : "") + "）· · ·";
+    const label = t("· · · {n} 步未改（{range}）· · ·", { n: indices.length, range: "#" + steps[0] + (steps.length > 1 ? "–#" + steps[steps.length - 1] : "") });
     const close = () => {
       state.openRuns.delete(indices[0]);
       clear(box, h("button", { type: "button", class: "rr-run-toggle", onclick: open }, label));
     };
     const open = () => {
       state.openRuns.add(indices[0]);
-      clear(box, h("button", { type: "button", class: "rr-run-toggle open", onclick: close }, "收起这 " + indices.length + " 步"), indices.map((index) => previewLine(index)));
+      clear(box, h("button", { type: "button", class: "rr-run-toggle open", onclick: close }, t("收起这 {n} 步", { n: indices.length })), indices.map((index) => previewLine(index)));
     };
     if (state.openRuns.has(indices[0]) || state.expandAll) open();
     else close();
@@ -419,10 +420,10 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
         { class: "rr-preview-head" },
         h("span", { class: "step-no" }, stepLabel(row)),
         h("span", { class: "rr-role" }, roleLabel(row.after)),
-        row.residue?.length ? chip("残留", "residue") : null,
-        row.targets?.length ? chip("流水线审阅后保留", "muted", { title: "流水线审阅过这一步，没有改" }) : null,
+        row.residue?.length ? chip(t("残留"), "residue") : null,
+        row.targets?.length ? chip(t("流水线审阅后保留"), "muted", { title: t("流水线审阅过这一步，没有改") }) : null,
         h("span", { class: "rr-preview-text" }, row.preview || ""),
-        h("button", { type: "button", class: "link-button", onclick: () => loadFull(row, full) }, "全文")
+        h("button", { type: "button", class: "link-button", onclick: () => loadFull(row, full) }, t("全文"))
       ),
       full
     );
@@ -435,14 +436,14 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
       clear(slot);
       return;
     }
-    clear(slot, h("span", { class: "muted" }, "读取…"));
+    clear(slot, h("span", { class: "muted" }, t("读取…")));
     try {
       const page = await api.messages(record.rewritten.id, { steps: String(row.after.step), limit: 5 });
       const message = page.items[0];
       clear(
         slot,
-        message.thinking ? h("div", { class: "rr-field", dataset: { field: "thinking" } }, h("span", { class: "rr-label" }, "思考"), h("div", { class: "rr-text" }, message.thinking)) : null,
-        message.text ? h("div", { class: "rr-field", dataset: { field: "text" } }, h("span", { class: "rr-label" }, "正文"), h("div", { class: "rr-text" }, message.text)) : null,
+        message.thinking ? h("div", { class: "rr-field", dataset: { field: "thinking" } }, h("span", { class: "rr-label" }, t("思考")), h("div", { class: "rr-text" }, message.thinking)) : null,
+        message.text ? h("div", { class: "rr-field", dataset: { field: "text" } }, h("span", { class: "rr-label" }, t("正文")), h("div", { class: "rr-text" }, message.text)) : null,
         message.tools.map((tool) => h("div", { class: "rr-tool" }, h("span", { class: "rr-tool-name" }, tool.name), h("span", { class: "rr-tool-preview" }, inputPreview(tool.input)))),
         row.targets?.length ? targetsCard(row.targets) : null
       );
@@ -455,12 +456,12 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
   function renderRow(row, index) {
     const article = h("article", { class: "rr-row kind-" + row.kind + (row.residue?.length ? " has-residue" : ""), id: "rr-row-" + index, dataset: { row: index } });
     const badges = [];
-    if (row.kind === "merged") badges.push(chip("合并自原 #" + row.before.map((item) => item.step).join(" #"), "merged"));
-    if (row.kind === "removed") badges.push(chip("改写删掉了这一步", "bad"));
-    if (row.kind === "added") badges.push(chip("改写新增的一步", "ok"));
-    if (row.kind === "same") badges.push(chip("未改", "muted"));
-    if (row.residue?.length) badges.push(chip("残留 " + row.residue.length, "residue"));
-    if (row.targets?.length) badges.push(chip("流水线审阅过", "muted"));
+    if (row.kind === "merged") badges.push(chip(t("合并自原 #{steps}", { steps: row.before.map((item) => item.step).join(" #") }), "merged"));
+    if (row.kind === "removed") badges.push(chip(t("改写删掉了这一步"), "bad"));
+    if (row.kind === "added") badges.push(chip(t("改写新增的一步"), "ok"));
+    if (row.kind === "same") badges.push(chip(t("未改"), "muted"));
+    if (row.residue?.length) badges.push(chip(t("残留 {n}", { n: row.residue.length }), "residue"));
+    if (row.targets?.length) badges.push(chip(t("流水线审阅过"), "muted"));
     record.syncs
       .filter((sync) => sync.direction !== "pipeline" && ((sync.direction === "next" && sync.up_step === row.after?.step) || (sync.direction === "previous" && sync.down_step === row.after?.step)))
       .forEach((sync) => badges.push(chip(syncLabel(sync), sync.ok === false ? "bad" : sync.ok ? "ok" : "muted")));
@@ -471,7 +472,7 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
         h("span", { class: "step-no" }, stepLabel(row)),
         h("span", { class: "rr-role" }, roleLabel(row.after || row.before[0])),
         badges,
-        row.after && row.before.length && row.kind !== "same" ? h("button", { type: "button", class: "link-button rr-split-toggle", title: "原文和改写左右并排（o）", onclick: () => toggleSplit(index) }, state.split.has(index) ? "收起并排" : "并排") : null
+        row.after && row.before.length && row.kind !== "same" ? h("button", { type: "button", class: "link-button rr-split-toggle", title: t("原文和改写左右并排（o）"), onclick: () => toggleSplit(index) }, state.split.has(index) ? t("收起并排") : t("并排")) : null
       )
     );
     if (state.split.has(index)) article.append(splitView(row));
@@ -483,9 +484,9 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
   }
 
   function syncLabel(sync) {
-    const other = sync.direction === "next" ? "下一段" : "上一段";
-    if (!sync.paired) return "⇄ " + other + "（原文不是同一份摘要）";
-    return "⇄ 与" + other + "摘要" + (sync.ok ? "同步" : "不同步");
+    const other = sync.direction === "next" ? t("下一段") : t("上一段");
+    if (!sync.paired) return t("⇄ {other}（原文不是同一份摘要）", { other });
+    return sync.ok ? t("⇄ 与{other}摘要同步", { other }) : t("⇄ 与{other}摘要不同步", { other });
   }
 
   function fieldBlock(field, segments, fold = true) {
@@ -532,7 +533,7 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
     const button = h(
       "button",
       { type: "button", class: "rr-fold", onclick: (event) => { event.stopPropagation(); span.replaceWith(document.createTextNode(text)); } },
-      "… 展开 " + formatCount(hidden) + " 字 …"
+      t("… 展开 {n} 字 …", { n: formatCount(hidden) })
     );
     span.append(head, button, tail);
     return span;
@@ -549,13 +550,13 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
       "div",
       { class: "rr-event " + tool.change, dataset: { change: tool.change_id }, onclick: () => select(tool.change_id) },
       h("strong", {}, TOOL_CHANGE[tool.change]),
-      h("span", {}, tool.name + (tool.from_step ? "（原 #" + tool.from_step + "）" : "")),
-      h("span", { class: "rr-event-preview" }, tool.change === "changed" ? [tool.input ? "参数变了" : null, tool.result ? "返回变了" : null].filter(Boolean).join(" · ") : inputPreview(tool.input))
+      h("span", {}, tool.name + (tool.from_step ? t("（原 #{step}）", { step: tool.from_step }) : "")),
+      h("span", { class: "rr-event-preview" }, tool.change === "changed" ? [tool.input ? t("参数变了") : null, tool.result ? t("返回变了") : null].filter(Boolean).join(" · ") : inputPreview(tool.input))
     );
     register(tool.change_id, bar);
     const more = tool.change === "changed"
-      ? [tool.input ? details("参数的改动", renderSegments(tool.input, { selectable: false })) : null, tool.result ? details("返回的改动", renderSegments(tool.result, { selectable: false })) : null]
-      : [details("参数", tool.input || ""), tool.result ? details("返回", tool.result) : null];
+      ? [tool.input ? details(t("参数的改动"), renderSegments(tool.input, { selectable: false })) : null, tool.result ? details(t("返回的改动"), renderSegments(tool.result, { selectable: false })) : null]
+      : [details(t("参数"), tool.input || ""), tool.result ? details(t("返回"), tool.result) : null];
     return h("div", { class: "rr-event-box" }, bar, more);
   }
 
@@ -572,8 +573,8 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
     return h(
       "div",
       { class: "rr-split" },
-      h("div", {}, h("div", { class: "rr-split-title" }, "原文" + (row.before.length > 1 ? "（" + row.before.length + " 步拼接）" : "")), side("-")),
-      h("div", {}, h("div", { class: "rr-split-title" }, "改写后"), side("+"))
+      h("div", {}, h("div", { class: "rr-split-title" }, row.before.length > 1 ? t("原文（{n} 步拼接）", { n: row.before.length }) : t("原文")), side("-")),
+      h("div", {}, h("div", { class: "rr-split-title" }, t("改写后")), side("+"))
     );
   }
 
@@ -595,7 +596,7 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
       let last = 0;
       pattern.lastIndex = 0;
       for (const match of text.matchAll(pattern)) {
-        parts.push(text.slice(last, match.index), h("mark", { class: "rr-residue", title: "残留：改写后的 harness 里已经没有这个组件" }, match[0]));
+        parts.push(text.slice(last, match.index), h("mark", { class: "rr-residue", title: t("残留：改写后的 harness 里已经没有这个组件") }, match[0]));
         last = match.index + match[0].length;
       }
       parts.push(text.slice(last));
@@ -708,7 +709,7 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
       return;
     }
     if (errorType === "other" && !note.trim()) {
-      state.message = "类型选了“其他”，先在备注里写原因";
+      state.message = t("类型选了“其他”，先在备注里写原因");
       state.awaitingType = true;
       renderInspector();
       inspector.querySelector("textarea[name=note]")?.focus();
@@ -732,16 +733,16 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
   function changePanel(change) {
     const row = record.rows[change.row];
     const current = state.verdicts[change.id];
-    const where = [stepLabel(row), change.kind === "text" ? FIELD_LABELS[change.field] : change.kind === "tool" ? "工具调用" : "整步", row.kind === "merged" ? "合并步骤" : null].filter(Boolean).join(" · ");
+    const where = [stepLabel(row), change.kind === "text" ? FIELD_LABELS[change.field] : change.kind === "tool" ? t("工具调用") : t("整步"), row.kind === "merged" ? t("合并步骤") : null].filter(Boolean).join(" · ");
     const body = [];
     if (change.kind === "text") {
       body.push(h("div", { class: "rr-change-text" }, change.removed ? h("del", { class: "rr-del" }, change.removed) : null, change.added ? h("ins", { class: "rr-ins" }, change.added) : null));
     } else if (change.kind === "tool") {
       const tool = row.tools.find((item) => item.change_id === change.id);
       body.push(h("p", {}, TOOL_CHANGE[tool.change] + " · ", h("code", {}, tool.name)));
-      if (tool.change !== "changed") body.push(details("参数", tool.input || "", true));
+      if (tool.change !== "changed") body.push(details(t("参数"), tool.input || "", true));
     } else {
-      body.push(h("p", {}, change.change === "removed" ? "改写删掉了这一步。" : "改写新增了这一步。"));
+      body.push(h("p", {}, change.change === "removed" ? t("改写删掉了这一步。") : t("改写新增了这一步。")));
     }
     if (change.annotations?.length) change.annotations.forEach((edit) => body.push(annotationCard(edit)));
     else if (change.kind === "text") {
@@ -750,28 +751,28 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
           "p",
           { class: "hint" },
           change.explained === "summary_sync"
-            ? "这是随上一段压缩摘要一起重建的续写开头，改动来自那段摘要的改写。"
+            ? t("这是随上一段压缩摘要一起重建的续写开头，改动来自那段摘要的改写。")
             : record.batch.annotations
-              ? "流水线没有记录这处改动。"
-              : "这个批次没有流水线注解，只有 diff。"
+              ? t("流水线没有记录这处改动。")
+              : t("这个批次没有流水线注解，只有 diff。")
         )
       );
     }
     if (row.targets?.length) body.push(targetsCard(row.targets));
-    const buttons = [["correct", "对", "1"], ["error", "错", "2"], ["uncertain", "待定", "3"]].map(([value, label, key]) =>
+    const buttons = [["correct", t("对"), "1"], ["error", t("错"), "2"], ["uncertain", t("待定"), "3"]].map(([value, label, key]) =>
       h("button", { type: "button", class: "rr-verdict-button " + value + (current?.verdict === value ? " active" : ""), onclick: () => judge(change, value) }, label, h("kbd", {}, key))
     );
     const types = state.awaitingType || current?.verdict === "error"
       ? h(
           "div",
           { class: "rr-types" },
-          h("span", { class: "rr-label" }, "错在哪（按 1–6）"),
+          h("span", { class: "rr-label" }, t("错在哪（按 1–6）")),
           Object.entries(errorTypes).map(([key, label], index) =>
-            h("button", { type: "button", class: "rr-type" + (current?.error_type === key ? " active" : ""), onclick: () => judge(change, "error", key) }, h("kbd", {}, String(index + 1)), label)
+            h("button", { type: "button", class: "rr-type" + (current?.error_type === key ? " active" : ""), onclick: () => judge(change, "error", key) }, h("kbd", {}, String(index + 1)), tb(label))
           )
         )
       : null;
-    const note = h("textarea", { name: "note", rows: 2, placeholder: "备注（可选；类型选“其他”时必填）" });
+    const note = h("textarea", { name: "note", rows: 2, placeholder: t("备注（可选；类型选“其他”时必填）") });
     note.value = current?.note || "";
     note.addEventListener("change", () => {
       if (current) save({ key: change.id, kind: "change", verdict: current.verdict, error_type: current.error_type, note: note.value });
@@ -782,9 +783,9 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
       h(
         "div",
         { class: "rr-panel-head" },
-        h("strong", {}, "改动 " + (order.indexOf(change.id) + 1) + " / " + order.length),
+        h("strong", {}, t("改动 {n} / {total}", { n: order.indexOf(change.id) + 1, total: order.length })),
         h("span", { class: "muted" }, where),
-        h("button", { type: "button", class: "link-button", onclick: () => { state.selected = null; markChanges(); renderInspector(); } }, "本条概况")
+        h("button", { type: "button", class: "link-button", onclick: () => { state.selected = null; markChanges(); renderInspector(); } }, t("本条概况"))
       ),
       body,
       h(
@@ -793,7 +794,7 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
         h("div", { class: "rr-verdict-buttons" }, buttons),
         types,
         note,
-        current ? h("button", { type: "button", class: "link-button", onclick: () => save({ key: change.id, delete: true }) }, "清除判定") : null,
+        current ? h("button", { type: "button", class: "link-button", onclick: () => save({ key: change.id, delete: true }) }, t("清除判定")) : null,
         message()
       )
     );
@@ -808,15 +809,15 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
       h(
         "div",
         { class: "chips" },
-        h("span", { class: "rr-label" }, "流水线记录"),
+        h("span", { class: "rr-label" }, t("流水线记录")),
         edit.category ? chip(edit.category, "info") : null,
-        edit.source ? chip("来源 " + edit.source, "muted") : null,
+        edit.source ? chip(t("来源 {source}", { source: edit.source }), "muted") : null,
         edit.target ? chip(edit.target, "muted") : null
       ),
       edit.reason ? h("p", { class: "rr-reason" }, edit.reason) : null,
       edit.warnings?.length ? h("div", { class: "chips" }, edit.warnings.map((warning) => chip(warning, gateWarnings.has(type(warning)) ? "bad" : "warn"))) : null,
-      edit.refs?.length ? h("div", { class: "rr-refs" }, h("span", { class: "rr-label" }, "方案条目"), edit.refs.map((ref) => planItem(ref, items[ref]))) : null,
-      edit.evidence?.length ? details("证据 " + edit.evidence.length, h("div", {}, edit.evidence.map(evidenceLine))) : null
+      edit.refs?.length ? h("div", { class: "rr-refs" }, h("span", { class: "rr-label" }, t("方案条目")), edit.refs.map((ref) => planItem(ref, items[ref]))) : null,
+      edit.evidence?.length ? details(t("证据 {n}", { n: edit.evidence.length }), h("div", {}, edit.evidence.map(evidenceLine))) : null
     );
   }
 
@@ -829,10 +830,10 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
         "div",
         { class: "rr-plan-body" },
         item.group ? h("div", { class: "muted" }, item.group) : null,
-        item.before ? h("div", {}, h("span", { class: "rr-label" }, "原文"), h("div", { class: "rr-plan-text" }, item.before)) : null,
-        item.after ? h("div", {}, h("span", { class: "rr-label" }, "新文"), h("div", { class: "rr-plan-text" }, item.after)) : null,
+        item.before ? h("div", {}, h("span", { class: "rr-label" }, t("原文")), h("div", { class: "rr-plan-text" }, item.before)) : null,
+        item.after ? h("div", {}, h("span", { class: "rr-label" }, t("新文")), h("div", { class: "rr-plan-text" }, item.after)) : null,
         item.note ? h("p", { class: "hint" }, item.note) : null,
-        fates[item.fate] ? h("p", { class: "hint" }, "去向“" + item.fate + "”：" + fates[item.fate]) : null
+        fates[item.fate] ? h("p", { class: "hint" }, t("去向“{fate}”：{meaning}", { fate: item.fate, meaning: fates[item.fate] })) : null
       )
     );
   }
@@ -843,7 +844,7 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
     return h(
       "div",
       { class: "rr-evidence" },
-      verified === true ? chip("已核实", "ok") : verified === false ? chip("未核实", "warn") : null,
+      verified === true ? chip(t("已核实"), "ok") : verified === false ? chip(t("未核实"), "warn") : null,
       h("q", {}, item.quote || item.text || JSON.stringify(item)),
       item.source || item.msg != null ? h("span", { class: "muted" }, " — " + (item.source || "m" + item.msg)) : null
     );
@@ -851,7 +852,7 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
 
   function targetsCard(targets) {
     return details(
-      "流水线在这一步审阅了什么",
+      t("流水线在这一步审阅了什么"),
       h(
         "div",
         {},
@@ -862,16 +863,16 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
             h(
               "div",
               { class: "chips" },
-              chip(target.task || "审阅", "muted"),
-              target.need_context ? chip("需要更多上下文", "warn") : null,
-              target.evidence?.unverified ? chip("未核实证据 " + target.evidence.unverified, "warn") : null,
-              target.rejected?.length ? chip("校验拒绝 " + target.rejected.length, "warn") : null
+              chip(target.task || t("审阅"), "muted"),
+              target.need_context ? chip(t("需要更多上下文"), "warn") : null,
+              target.evidence?.unverified ? chip(t("未核实证据 {n}", { n: target.evidence.unverified }), "warn") : null,
+              target.rejected?.length ? chip(t("校验拒绝 {n}", { n: target.rejected.length }), "warn") : null
             ),
             target.locator?.length
-              ? h("div", {}, h("span", { class: "rr-label" }, "定位提示"), target.locator.map((hint) => h("div", { class: "rr-locator" }, chip(hint.source || "?", "info"), hint.quote ? h("q", {}, hint.quote) : null, hint.reason ? h("span", { class: "hint" }, " — " + hint.reason) : null)))
+              ? h("div", {}, h("span", { class: "rr-label" }, t("定位提示")), target.locator.map((hint) => h("div", { class: "rr-locator" }, chip(hint.source || "?", "info"), hint.quote ? h("q", {}, hint.quote) : null, hint.reason ? h("span", { class: "hint" }, " — " + hint.reason) : null)))
               : null,
             target.kept?.length
-              ? h("div", {}, h("span", { class: "rr-label" }, "审阅后保留原文"), target.kept.map((kept) => h("div", { class: "rr-kept" }, h("q", {}, kept.quote || ""), kept.reason ? h("span", { class: "hint" }, " — " + kept.reason) : null)))
+              ? h("div", {}, h("span", { class: "rr-label" }, t("审阅后保留原文")), target.kept.map((kept) => h("div", { class: "rr-kept" }, h("q", {}, kept.quote || ""), kept.reason ? h("span", { class: "hint" }, " — " + kept.reason) : null)))
               : null
           )
         )
@@ -891,23 +892,23 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
       h(
         "section",
         { class: "panel inspector-card" },
-        h("div", { class: "rr-gate big " + gateTone }, h("strong", {}, gateLabel), h("span", {}, "入训分流")),
-        state.gate.reasons.length ? h("ul", { class: "rr-reasons" }, state.gate.reasons.map((reason) => h("li", { class: reason.level }, reason.text))) : h("p", { class: "hint" }, "没有待处理的问题"),
+        h("div", { class: "rr-gate big " + gateTone }, h("strong", {}, gateLabel), h("span", {}, t("入训分流"))),
+        state.gate.reasons.length ? h("ul", { class: "rr-reasons" }, state.gate.reasons.map((reason) => h("li", { class: reason.level }, tb(reason.text)))) : h("p", { class: "hint" }, t("没有待处理的问题")),
         h(
           "div",
           { class: "inline" },
-          h("button", { type: "button", class: "secondary" + (override?.verdict === "include" ? " active" : ""), onclick: () => save({ key: "record", kind: "record", verdict: "include" }) }, "标为可进"),
-          h("button", { type: "button", class: "secondary" + (override?.verdict === "exclude" ? " active" : ""), onclick: () => save({ key: "record", kind: "record", verdict: "exclude" }) }, "标为不进"),
-          override ? h("button", { type: "button", class: "link-button", onclick: () => save({ key: "record", delete: true }) }, "清除人工决定") : null
+          h("button", { type: "button", class: "secondary" + (override?.verdict === "include" ? " active" : ""), onclick: () => save({ key: "record", kind: "record", verdict: "include" }) }, t("标为可进")),
+          h("button", { type: "button", class: "secondary" + (override?.verdict === "exclude" ? " active" : ""), onclick: () => save({ key: "record", kind: "record", verdict: "exclude" }) }, t("标为不进")),
+          override ? h("button", { type: "button", class: "link-button", onclick: () => save({ key: "record", delete: true }) }, t("清除人工决定")) : null
         ),
         message()
       ),
       h(
         "section",
         { class: "panel inspector-card" },
-        h("strong", {}, "进度"),
-        h("p", {}, "已判 " + judged + " / " + record.changes.length + " 处 · 错 " + errors + " · 漏改 " + misses),
-        h("p", { class: "hint" }, order.length ? "按 j 从第一处开始；1 对 · 2 错 · 3 待定，判完自动跳到下一处。选中正文里的一段可以标漏改。" : "这条记录没有改动。")
+        h("strong", {}, t("进度")),
+        h("p", {}, t("已判 {judged} / {total} 处 · 错 {errors} · 漏改 {misses}", { judged, total: record.changes.length, errors, misses })),
+        h("p", { class: "hint" }, order.length ? t("按 j 从第一处开始；1 对 · 2 错 · 3 待定，判完自动跳到下一处。选中正文里的一段可以标漏改。") : t("这条记录没有改动。"))
       ),
       record.status || record.syncs.length ? statusCard() : null,
       residueCard(),
@@ -920,15 +921,15 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
     return h(
       "section",
       { class: "panel inspector-card" },
-      h("strong", {}, "流水线与摘要同步"),
-      record.status ? h("p", {}, "流水线状态：", chip(record.status.value, STATUS_TONE[record.status.value] || "muted"), record.status.reason ? h("span", { class: "hint" }, " " + record.status.reason) : null) : null,
+      h("strong", {}, t("流水线与摘要同步")),
+      record.status ? h("p", {}, t("流水线状态："), chip(record.status.value, STATUS_TONE[record.status.value] || "muted"), record.status.reason ? h("span", { class: "hint" }, " " + record.status.reason) : null) : null,
       record.syncs.map((sync) =>
         h(
           "div",
           { class: "rr-sync" },
-          chip(sync.direction === "pipeline" ? "流水线记录" : sync.ok === false ? "不同步" : sync.ok ? "同步" : "无法判断", sync.ok === false ? "bad" : sync.ok ? "ok" : "muted"),
+          chip(sync.direction === "pipeline" ? t("流水线记录") : sync.ok === false ? t("不同步") : sync.ok ? t("同步") : t("无法判断"), sync.ok === false ? "bad" : sync.ok ? "ok" : "muted"),
           h("span", {}, (sync.from || "?") + " → " + (sync.to || "?")),
-          sync.direction !== "pipeline" && sync.paired === false ? h("span", { class: "hint" }, "（原文两段的摘要本来就不一致）") : null,
+          sync.direction !== "pipeline" && sync.paired === false ? h("span", { class: "hint" }, t("（原文两段的摘要本来就不一致）")) : null,
           sync.detail ? h("span", { class: "muted" }, " " + sync.detail) : null
         )
       )
@@ -937,13 +938,13 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
 
   function residueCard() {
     if (!record.residue.length) {
-      return h("section", { class: "panel inspector-card" }, h("strong", {}, "规则层残留"), h("p", { class: "hint" }, record.harness ? "改写后的训练步骤里没有再用到已删除的组件。" : "没有原始轨迹，无法检查。"));
+      return h("section", { class: "panel inspector-card" }, h("strong", {}, t("规则层残留")), h("p", { class: "hint" }, record.harness ? t("改写后的训练步骤里没有再用到已删除的组件。") : t("没有原始轨迹，无法检查。")));
     }
     return h(
       "section",
       { class: "panel inspector-card" },
-      h("strong", {}, "规则层残留 " + record.residue.length),
-      h("p", { class: "hint" }, "改写后的 harness 里已经没有、但改写后的步骤还在用的组件。确认漏改会让这条不进训练。"),
+      h("strong", {}, t("规则层残留 {n}", { n: record.residue.length })),
+      h("p", { class: "hint" }, t("改写后的 harness 里已经没有、但改写后的步骤还在用的组件。确认漏改会让这条不进训练。")),
       record.residue.map((item) => {
         const verdict = state.verdicts[item.key]?.verdict;
         const uses = Object.entries(item.uses).map(([how, steps]) => USE_LABELS[how] + " " + steps.map((s) => "#" + s).join(" "));
@@ -956,9 +957,9 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
           h(
             "div",
             { class: "inline" },
-            h("button", { type: "button", class: "secondary" + (verdict === "confirm" ? " active" : ""), onclick: () => save({ key: item.key, kind: "residue", verdict: "confirm" }) }, "确认漏改"),
-            h("button", { type: "button", class: "secondary" + (verdict === "ignore" ? " active" : ""), onclick: () => save({ key: item.key, kind: "residue", verdict: "ignore" }) }, "忽略"),
-            verdict ? h("button", { type: "button", class: "link-button", onclick: () => save({ key: item.key, delete: true }) }, "清除") : null
+            h("button", { type: "button", class: "secondary" + (verdict === "confirm" ? " active" : ""), onclick: () => save({ key: item.key, kind: "residue", verdict: "confirm" }) }, t("确认漏改")),
+            h("button", { type: "button", class: "secondary" + (verdict === "ignore" ? " active" : ""), onclick: () => save({ key: item.key, kind: "residue", verdict: "ignore" }) }, t("忽略")),
+            verdict ? h("button", { type: "button", class: "link-button", onclick: () => save({ key: item.key, delete: true }) }, t("清除")) : null
           )
         );
       })
@@ -969,16 +970,16 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
     return h(
       "section",
       { class: "panel inspector-card" },
-      h("strong", {}, "标注的漏改 " + misses.length),
+      h("strong", {}, t("标注的漏改 {n}", { n: misses.length })),
       misses.map((item) =>
         h(
           "div",
           { class: "rr-miss-item" },
           h("span", { class: "step-no" }, "#" + item.detail?.step),
-          chip(missTypes[item.error_type] || item.error_type || "漏改", "bad"),
+          chip(tb(missTypes[item.error_type]) || item.error_type || t("漏改"), "bad"),
           h("q", {}, (item.detail?.quote || "").slice(0, 160)),
           item.note ? h("div", { class: "hint" }, item.note) : null,
-          h("button", { type: "button", class: "link-button", onclick: () => save({ key: item.key, delete: true }) }, "删除")
+          h("button", { type: "button", class: "link-button", onclick: () => save({ key: item.key, delete: true }) }, t("删除"))
         )
       )
     );
@@ -988,20 +989,20 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
     return h(
       "section",
       { class: "panel inspector-card" },
-      h("strong", {}, "流水线记了、但在文本里对不上的改动 " + record.unplaced.length),
+      h("strong", {}, t("流水线记了、但在文本里对不上的改动 {n}", { n: record.unplaced.length })),
       record.unplaced.map((edit) => h("div", { class: "rr-kept" }, h("code", {}, edit.key), " ", h("q", {}, (edit.old || "").slice(0, 120)), edit.reason ? h("div", { class: "hint" }, edit.reason) : null))
     );
   }
 
   function missPanel() {
     const pending = state.pendingMiss;
-    const note = h("textarea", { name: "note", rows: 2, placeholder: "备注（可选；类型选“其他”时必填）" });
+    const note = h("textarea", { name: "note", rows: 2, placeholder: t("备注（可选；类型选“其他”时必填）") });
     return h(
       "div",
       { class: "panel inspector-card rr-panel" },
-      h("div", { class: "rr-panel-head" }, h("strong", {}, "标为漏改"), h("span", { class: "muted" }, "#" + pending.step + " · " + (FIELD_LABELS[pending.field] || pending.field))),
+      h("div", { class: "rr-panel-head" }, h("strong", {}, t("标为漏改")), h("span", { class: "muted" }, "#" + pending.step + " · " + (FIELD_LABELS[pending.field] || pending.field))),
       h("q", { class: "rr-quote" }, pending.quote),
-      h("span", { class: "rr-label" }, "类型"),
+      h("span", { class: "rr-label" }, t("类型")),
       h(
         "div",
         { class: "rr-types" },
@@ -1013,19 +1014,19 @@ async function renderRecord(root, ctx, batchId, sampleId, still, params = new UR
               class: "rr-type",
               onclick: () => {
                 if (key === "other" && !note.value.trim()) {
-                  state.message = "类型选了“其他”，先在备注里写原因";
+                  state.message = t("类型选了“其他”，先在备注里写原因");
                   clear(inspector, missPanel());
                   return;
                 }
                 save({ kind: "miss", verdict: "miss", error_type: key, note: note.value, detail: pending });
               },
             },
-            label
+            tb(label)
           )
         )
       ),
       note,
-      h("button", { type: "button", class: "link-button", onclick: () => { state.pendingMiss = null; renderInspector(); } }, "取消"),
+      h("button", { type: "button", class: "link-button", onclick: () => { state.pendingMiss = null; renderInspector(); } }, t("取消")),
       message()
     );
   }
