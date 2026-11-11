@@ -21,5 +21,5 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-trajectory_workbench = ["web/*", "web/views/*"]
+trajectory_workbench = ["web/*", "web/views/*", "web/locales/*", "web/locales/en/*"]
 

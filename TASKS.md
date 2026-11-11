@@ -165,3 +165,11 @@
 - [ ] harness.trace 仍是平方级（2000 步 4 s；这次只去掉了每步重拼字符串，5.2 s → 4.0 s）
 - [ ] 重新索引每个源重建一次 episode；batch_rows / stats / export_jev 整表加载；/api/collections 每次检查所有源路径
 - [ ] 2026-09-04 的 spec 和 plan 描述的是已被取代的 v1；typesafe-sdk 没有上限版本；测试里约 50 个没关的数据库连接
+
+## 阅读器与中英文界面（2026-11-11）
+- [x] 阅读器：超长单行按字数折叠（输入也折叠）；Edit / MultiEdit / str_replace / Write / apply_patch 渲染为 diff；Jev 逐步扫描超过 300 个模型步骤不自动跑
+- [x] 中英文界面：侧栏切换，选择存在浏览器里；源码里的中文是 key，英文在 web/locales/en/*.mjs；后端写的中文标签和句子用 tb() 在显示时翻译（backend.mjs）
+- [x] 测试：tests/test_i18n.mjs（漏包 t()、缺英文、占位符不一致、同一文本两种译法、模块语法）、tests/test_i18n_backend.py（后端标签都有英文）
+- [ ] 没翻译的：CLI 输出、导出的 Markdown 片段、Claude Code 压缩标记那一行转录文本、服务器报错信息（没有逐条查是否含中文）
+- [ ] 英文单复数没处理（“calls 1 steps”）
+- [ ] 未被要求动作的清单、行为变化的噪声判定：等 Evolvarium 的 3.0a / 3.0b 落地后接进就绪度和改写审阅

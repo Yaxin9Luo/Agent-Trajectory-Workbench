@@ -28,6 +28,15 @@ PORT=8416 ./deploy.sh status
 PORT=8416 ./deploy.sh stop
 ```
 
+## Interface language
+
+The interface is in Chinese and English; the switch is in the sidebar and the choice is kept in
+the browser (the first visit follows the browser language). The Chinese text in the source is the
+key: `t("…")` in `web/i18n.mjs` looks it up in `web/locales/en/<file>.mjs`, and `tb(…)` translates
+labels and sentences the server writes in Chinese (`web/locales/en/backend.mjs`). Trajectory
+content, notes and exported files are never translated. `tests/test_i18n.mjs` fails when interface
+text is added without `t()` or without an English entry.
+
 ## Import trajectories
 
 Paste an absolute path into the sidebar form, or use the CLI. A path can be a single file,

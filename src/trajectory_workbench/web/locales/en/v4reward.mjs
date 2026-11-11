@@ -1,0 +1,22 @@
+// English for the interface text in v4reward. Key: the Chinese source text, exactly as written in t().
+export default {
+  "页": "Slides",
+  "v4 reward · RL 奖励 · {label}": "v4 reward · RL reward · {label}",
+  "masked（不是 0）": "masked (not 0)",
+  "{layer} · {count} 项未通过": "{layer} · {count} failed",
+  "没有未通过的检查项": "No failed checks",
+  "L3 评审原文 critique": "L3 review text (critique)",
+  "R 为空（masked）：这条不计入奖励，不能当 0 分。原因：": "R is empty (masked): this one does not count toward the reward and must not be read as 0. Reason:",
+  " 打分器没有给出原因": " The grader gave no reason",
+  "失败阶段 {stage}": "Failed stage {stage}",
+  "有重试": "Retried",
+  "L3 被丢弃": "L3 dropped",
+  "总耗时 {time}": "Total time {time}",
+  "L0-L1 内：{stages}": "Within L0-L1: {stages}",
+  "无报错 / 重试": "No errors / retries",
+  "第 {pages} 页": "Slide {pages}",
+  "、": ", ",
+  "（没有 {viewport} 的截图）": "(no {viewport} screenshot)",
+  "第 {page} 页": "Slide {page}",
+  "逐页截图 1920x1080 · {count} 页": "Per-slide screenshots 1920x1080 · {count} slides",
+};

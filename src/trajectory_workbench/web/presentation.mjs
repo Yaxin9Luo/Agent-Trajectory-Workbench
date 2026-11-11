@@ -1,3 +1,5 @@
+import { t } from "./i18n.mjs";
+
 export function formatDuration(milliseconds) {
   if (milliseconds == null || !Number.isFinite(Number(milliseconds))) return "—";
   const total = Number(milliseconds);
@@ -42,29 +44,29 @@ export function formatClock(milliseconds) {
 }
 
 export const OUTCOME_LABELS = {
-  pass: "评分通过",
-  partial: "部分通过",
-  fail: "评分失败",
-  error: "未完成/报错",
-  unknown: "无评分",
+  pass: t("评分通过"),
+  partial: t("部分通过"),
+  fail: t("评分失败"),
+  error: t("未完成/报错"),
+  unknown: t("无评分"),
 };
 
-export const HUMAN_LABELS = { pass: "确实完成", partial: "部分完成", fail: "没完成", unsure: "说不准" };
+export const HUMAN_LABELS = { pass: t("确实完成"), partial: t("部分完成"), fail: t("没完成"), unsure: t("说不准") };
 
 export const PHASE_LABELS = {
-  explore: "探索",
-  plan: "规划",
-  implement: "实现",
-  verify: "验证",
-  debug: "调试",
-  report: "汇报",
-  other: "其他",
+  explore: t("探索"),
+  plan: t("规划"),
+  implement: t("实现"),
+  verify: t("验证"),
+  debug: t("调试"),
+  report: t("汇报"),
+  other: t("其他"),
 };
 
-export const LAYER_LABELS = { base: "内置工具", mcp: "MCP", skill: "Skill", subagent: "子代理", hook: "Hook", instruction: "Instruction" };
+export const LAYER_LABELS = { base: t("内置工具"), mcp: "MCP", skill: "Skill", subagent: t("子代理"), hook: "Hook", instruction: "Instruction" };
 
-export const WORK_LABELS = { required: "必需", fix: "修复", polish: "打磨", support: "辅助", unclear: "不明" };
-export const ROLE_LABELS = { main: "主轨迹", segment: "上下文分段", subagent: "子代理" };
+export const WORK_LABELS = { required: t("必需"), fix: t("修复"), polish: t("打磨"), support: t("辅助"), unclear: t("不明") };
+export const ROLE_LABELS = { main: t("主轨迹"), segment: t("上下文分段"), subagent: t("子代理") };
 
 export function outcomeTone(status) {
   return { pass: "ok", partial: "warn", fail: "bad", error: "bad" }[status] || "muted";
@@ -73,10 +75,10 @@ export function outcomeTone(status) {
 /** How the reviewer's verdict relates to the grader's. */
 export function graderAgreement(grader, human) {
   if (!human || human === "unsure" || !grader || grader === "unknown") return null;
-  if (grader === "pass" && (human === "fail" || human === "partial")) return { key: "inflated", label: "评分虚高：评分器判过，人工判不过" };
-  if ((grader === "fail" || grader === "error") && human === "pass") return { key: "deflated", label: "评分误杀：评分器判失败，人工判完成" };
-  if (grader === human || (grader === "error" && human === "fail")) return { key: "agree", label: "与评分器一致" };
-  return { key: "partial", label: "与评分器部分一致" };
+  if (grader === "pass" && (human === "fail" || human === "partial")) return { key: "inflated", label: t("评分虚高：评分器判过，人工判不过") };
+  if ((grader === "fail" || grader === "error") && human === "pass") return { key: "deflated", label: t("评分误杀：评分器判失败，人工判完成") };
+  if (grader === human || (grader === "error" && human === "fail")) return { key: "agree", label: t("与评分器一致") };
+  return { key: "partial", label: t("与评分器部分一致") };
 }
 
 export function terminalCards(run) {
@@ -193,8 +195,8 @@ export function firstDivergence(leftMessages, rightMessages) {
     return {
       left: leftLonger ? next.step : last.step,
       right: leftLonger ? last.step : next.step,
-      leftLabel: leftLonger ? next.signature : "（结束）",
-      rightLabel: leftLonger ? "（结束）" : next.signature,
+      leftLabel: leftLonger ? next.signature : t("（结束）"),
+      rightLabel: leftLonger ? t("（结束）") : next.signature,
       shared: length,
     };
   }

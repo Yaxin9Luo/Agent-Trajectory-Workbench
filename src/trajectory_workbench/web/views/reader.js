@@ -24,12 +24,15 @@ import { highlighted } from "./search.js";
 import { renderMohPanels } from "./moh.js";
 import { renderReviewPanel } from "./review.js";
 import { renderV4Reward } from "./v4reward.js";
+import { t, tb } from "../i18n.mjs";
 
 const TEXT_CLIP = 6000;
-const CHANGE_LABELS = { edit: "改动", write: "写入", patch: "补丁" };
+const CHANGE_LABELS = { edit: t("改动"), write: t("写入"), patch: t("补丁") };
+// foldText says what it hid in "行" (lines) or "字" (characters).
+const UNIT_LABELS = { 行: t("行"), 字: t("字") };
 
 export async function renderReader(root, trajectoryId, ctx, still, params = new URLSearchParams()) {
-  clear(root, empty("读取轨迹…"));
+  clear(root, empty(t("读取轨迹…")));
   const [run, episode] = await Promise.all([api.trajectory(trajectoryId), api.episode(trajectoryId).catch(() => null)]);
   if (!still()) return;
   // Calls that launched a subagent in this episode, by call id.
@@ -59,9 +62,9 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   const taskCard = h("section", { class: "task-card panel" });
   const v4Slot = h("div", { class: "v4-slot" });
   const signalRow = h("section", { class: "signal-row" });
-  const rail = h("div", { class: "step-rail", role: "list", "aria-label": "步骤条" });
-  const contextRow = h("div", { class: "track-row context-row", "aria-label": "每步上下文大小" });
-  const clockRow = h("div", { class: "track-row clock-row", "aria-label": "每步耗时" });
+  const rail = h("div", { class: "step-rail", role: "list", "aria-label": t("步骤条") });
+  const contextRow = h("div", { class: "track-row context-row", "aria-label": t("每步上下文大小") });
+  const clockRow = h("div", { class: "track-row clock-row", "aria-label": t("每步耗时") });
   const trackLegend = h("div", { class: "track-legend" });
   // The three rows share one scroll box so their cells stay aligned on long runs.
   const railPanel = h(
@@ -88,7 +91,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   function renderTabs() {
     clear(
       tabs,
-      [["analysis", "分析"], ["ledgers", "台账"], ["review", "阅读记录" + (state.review?.updated_at ? " ✓" : "")]].map(([key, label]) =>
+      [["analysis", t("分析")], ["ledgers", t("台账")], ["review", t("阅读记录") + (state.review?.updated_at ? " ✓" : "")]].map(([key, label]) =>
         h("button", { type: "button", "aria-pressed": String(activeTab === key), onclick: () => { activeTab = key; renderTabs(); } }, label)
       )
     );
@@ -150,9 +153,9 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       ? h(
           "div",
           { class: "queue-nav" },
-          h("button", { type: "button", disabled: position <= 0, onclick: () => ctx.navigate("#/t/" + encodeURIComponent(nav.ids[position - 1])) }, "← 上一条"),
-          h("span", {}, "练习 " + (position + 1) + " / " + nav.ids.length),
-          h("button", { type: "button", disabled: position >= nav.ids.length - 1, onclick: () => ctx.navigate("#/t/" + encodeURIComponent(nav.ids[position + 1])) }, "下一条 →")
+          h("button", { type: "button", disabled: position <= 0, onclick: () => ctx.navigate("#/t/" + encodeURIComponent(nav.ids[position - 1])) }, t("← 上一条")),
+          h("span", {}, t("练习 {n} / {total}", { n: position + 1, total: nav.ids.length })),
+          h("button", { type: "button", disabled: position >= nav.ids.length - 1, onclick: () => ctx.navigate("#/t/" + encodeURIComponent(nav.ids[position + 1])) }, t("下一条 →"))
         )
       : null;
     const meta = run.meta || {};
@@ -165,19 +168,19 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     ].filter(Boolean);
     let verdict;
     if (!state.revealed) {
-      verdict = h("div", { class: "verdict hidden-verdict" }, h("strong", {}, "评分已隐藏"), h("span", {}, "在右侧先给出你的判断"));
+      verdict = h("div", { class: "verdict hidden-verdict" }, h("strong", {}, t("评分已隐藏")), h("span", {}, t("在右侧先给出你的判断")));
     } else {
       verdict = h(
         "div",
         { class: "verdict " + outcomeTone(outcome.status) },
-        h("small", { class: "verdict-source" }, "评测脚本 verifier，不是 RL reward"),
-        h("strong", {}, OUTCOME_LABELS[outcome.status] || outcome.status || "无评分"),
-        h("span", {}, [outcome.score != null ? "score " + outcome.score : null, outcome.reason, outcome.source].filter(Boolean).join(" · ") || "来源未提供评分"),
-        outcome.infra_failure ? chip("疑似基础设施失败", "warn") : null
+        h("small", { class: "verdict-source" }, t("评测脚本 verifier，不是 RL reward")),
+        h("strong", {}, OUTCOME_LABELS[outcome.status] || outcome.status || t("无评分")),
+        h("span", {}, [outcome.score != null ? "score " + outcome.score : null, outcome.reason, outcome.source].filter(Boolean).join(" · ") || t("来源未提供评分")),
+        outcome.infra_failure ? chip(t("疑似基础设施失败"), "warn") : null
       );
     }
     // The v4 reward is a score too: in blind mode it waits for the reader's own verdict.
-    clear(v4Slot, run.v4_reward ? (state.revealed ? renderV4Reward(run.v4_reward) : h("section", { class: "panel v4-reward hidden-verdict" }, h("strong", {}, "v4 reward 已隐藏"), h("span", { class: "muted" }, " 先给出你的判断"))) : null);
+    clear(v4Slot, run.v4_reward ? (state.revealed ? renderV4Reward(run.v4_reward) : h("section", { class: "panel v4-reward hidden-verdict" }, h("strong", {}, t("v4 reward 已隐藏")), h("span", { class: "muted" }, " " + t("先给出你的判断")))) : null);
     clear(
       header,
       h(
@@ -197,30 +200,30 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     return h(
       "div",
       { class: "inline" },
-      h("button", { type: "button", class: "secondary", onclick: () => { ctx.toggleCompare(trajectoryId); renderHeader(); } }, picked ? "✓ 已加入对比" : "加入对比"),
-      others.length ? h("a", { class: "link-button", href: "#/pair/" + encodeURIComponent(others[0]) + "/" + encodeURIComponent(trajectoryId) }, "与已选的对比 →") : null
+      h("button", { type: "button", class: "secondary", onclick: () => { ctx.toggleCompare(trajectoryId); renderHeader(); } }, picked ? t("✓ 已加入对比") : t("加入对比")),
+      others.length ? h("a", { class: "link-button", href: "#/pair/" + encodeURIComponent(others[0]) + "/" + encodeURIComponent(trajectoryId) }, t("与已选的对比 →")) : null
     );
   }
 
   function renderTask() {
     const task = run.task || {};
-    const instruction = task.instruction || "（来源里没有可识别的任务说明）";
+    const instruction = task.instruction || t("（来源里没有可识别的任务说明）");
     const metrics = run.metrics || {};
     const numbers = [
-      ["步", run.step_index.length],
-      ["工具调用", metrics.tool_calls],
-      ["工具报错", metrics.tool_errors],
-      ["时长", metrics.has_clock || metrics.wall_ms ? formatDuration(metrics.wall_ms ?? metrics.max_offset_ms) : "—"],
+      [t("步"), run.step_index.length],
+      [t("工具调用"), metrics.tool_calls],
+      [t("工具报错"), metrics.tool_errors],
+      [t("时长"), metrics.has_clock || metrics.wall_ms ? formatDuration(metrics.wall_ms ?? metrics.max_offset_ms) : "—"],
       ["tokens", formatCount(metrics.total_tokens)],
-      ["费用", metrics.total_cost_usd != null ? "$" + Number(metrics.total_cost_usd).toFixed(2) : "—"],
+      [t("费用"), metrics.total_cost_usd != null ? "$" + Number(metrics.total_cost_usd).toFixed(2) : "—"],
     ];
     const body = h("div", { class: "task-text" }, instruction.length > 1200 ? instruction.slice(0, 1200) + "…" : instruction);
     const toggle = instruction.length > 1200
-      ? h("button", { type: "button", class: "link-button", onclick: () => { body.textContent = instruction; toggle.remove(); } }, "展开全文")
+      ? h("button", { type: "button", class: "link-button", onclick: () => { body.textContent = instruction; toggle.remove(); } }, t("展开全文"))
       : null;
     clear(
       taskCard,
-      h("div", { class: "task-main" }, h("span", { class: "eyebrow" }, "任务" + (task.id ? " · " + task.id : "")), body, toggle, deliverableLinks(task)),
+      h("div", { class: "task-main" }, h("span", { class: "eyebrow" }, t("任务") + (task.id ? " · " + task.id : "")), body, toggle, deliverableLinks(task)),
       h("dl", { class: "task-numbers" }, numbers.map(([label, value]) => h("div", {}, h("dt", {}, label), h("dd", {}, String(value ?? "—")))))
     );
   }
@@ -232,7 +235,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     return h(
       "div",
       { class: "task-files" },
-      h("span", { class: "eyebrow" }, "产出文件"),
+      h("span", { class: "eyebrow" }, t("产出文件")),
       ...files.map((file) =>
         h(
           "a",
@@ -250,15 +253,15 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     const suppressed = new Set(run.signals?.suppressed || []);
     const flags = (run.signals?.flags || []).filter((flag) => !suppressed.has(flag.key));
     (run.signals?.flags || []).filter((flag) => suppressed.has(flag.key)).forEach((flag) => {
-      chips.push(h("span", { class: "signal muted", title: "后面还有上下文分段，这条信号只看 episode 的最后一段" }, h("b", {}, flag.label), h("span", {}, "后续分段继续，不计")));
+      chips.push(h("span", { class: "signal muted", title: t("后面还有上下文分段，这条信号只看 episode 的最后一段") }, h("b", {}, tb(flag.label)), h("span", {}, t("后续分段继续，不计"))));
     });
     flags.forEach((flag) => {
       chips.push(
         h(
           "button",
-          { type: "button", class: "signal " + flag.severity, title: flag.detail, onclick: () => setHighlight("规则 · " + flag.label, flag.steps) },
-          h("b", {}, flag.label),
-          h("span", {}, flag.detail)
+          { type: "button", class: "signal " + flag.severity, title: tb(flag.detail), onclick: () => setHighlight(t("规则 · {label}", { label: tb(flag.label) }), flag.steps) },
+          h("b", {}, tb(flag.label)),
+          h("span", {}, tb(flag.detail))
         )
       );
     });
@@ -267,9 +270,9 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       chips.push(
         h(
           "button",
-          { type: "button", class: "signal ok", onclick: () => setHighlight("最后改动后的检查", [values.verification.step]) },
-          h("b", {}, "改完有检查"),
-          h("span", {}, "#" + values.verification.step + " " + values.verification.reason)
+          { type: "button", class: "signal ok", onclick: () => setHighlight(t("最后改动后的检查"), [values.verification.step]) },
+          h("b", {}, t("改完有检查")),
+          h("span", {}, "#" + values.verification.step + " " + tb(values.verification.reason))
         )
       );
     }
@@ -282,22 +285,22 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
             "button",
             { type: "button", class: "signal jev", onclick: () => setHighlight("Jev · " + jevLabel(key), steps) },
             h("b", {}, "Jev · " + jevLabel(key)),
-            h("span", {}, steps.length + " 步")
+            h("span", {}, t("{count} 步", { count: steps.length }))
           )
         );
       });
       if (summary.claims_done_unverified?.length) {
-        chips.push(h("button", { type: "button", class: "signal jev warn", onclick: () => setHighlight("Jev · 未验证即宣称完成", summary.claims_done_unverified) }, h("b", {}, "Jev · 未验证即宣称完成"), h("span", {}, summary.claims_done_unverified.map((s) => "#" + s).join(" "))));
+        chips.push(h("button", { type: "button", class: "signal jev warn", onclick: () => setHighlight(t("Jev · 未验证即宣称完成"), summary.claims_done_unverified) }, h("b", {}, t("Jev · 未验证即宣称完成")), h("span", {}, summary.claims_done_unverified.map((s) => "#" + s).join(" "))));
       }
-      if (state.revealed && summary.consistency === "overclaim") chips.push(h("span", { class: "signal bad" }, h("b", {}, "声称完成但评分失败"), h("span", {}, "对比最终汇报与评分")));
-      if (state.revealed && summary.consistency === "underclaim") chips.push(h("span", { class: "signal warn" }, h("b", {}, "自称未完成但评分通过"), h("span", {}, "评分器可能太松")));
+      if (state.revealed && summary.consistency === "overclaim") chips.push(h("span", { class: "signal bad" }, h("b", {}, t("声称完成但评分失败")), h("span", {}, t("对比最终汇报与评分"))));
+      if (state.revealed && summary.consistency === "underclaim") chips.push(h("span", { class: "signal warn" }, h("b", {}, t("自称未完成但评分通过")), h("span", {}, t("评分器可能太松"))));
     }
     const layers = values.layers || {};
     const layerText = Object.entries(layers).filter(([, count]) => count).map(([key, count]) => (LAYER_LABELS[key.replace("_events", "")] || key) + " " + count);
     clear(
       signalRow,
-      chips.length ? chips : h("span", { class: "muted" }, "规则信号没有触发"),
-      layerText.length ? h("span", { class: "layer-summary", title: "工具调用与事件按 harness 层归属" }, "harness 层：" + layerText.join(" · ")) : null
+      chips.length ? chips : h("span", { class: "muted" }, t("规则信号没有触发")),
+      layerText.length ? h("span", { class: "layer-summary", title: t("工具调用与事件按 harness 层归属") }, t("harness 层：{list}", { list: layerText.join(" · ") })) : null
     );
   }
 
@@ -337,7 +340,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
         h("button", {
           type: "button",
           class: ["rail-cell", "k-" + cell.kind, cell.error && "error", cell.flagged && "flagged", cell.turning && "turning", noted.has(cell.step) && "noted"].filter(Boolean).join(" "),
-          title: "#" + cell.step + " · " + (PHASE_LABELS[cell.kind] || cell.kind) + (cell.error ? " · 工具报错" : ""),
+          title: "#" + cell.step + " · " + (PHASE_LABELS[cell.kind] || cell.kind) + (cell.error ? " · " + t("工具报错") : ""),
           onclick: () => jumpTo(cell.step),
         })
       )
@@ -345,15 +348,15 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     const hasPhase = Boolean(state.jev?.steps?.steps?.length);
     const legend = hasPhase
       ? Object.entries(PHASE_LABELS).map(([key, label]) => h("span", { class: "legend k-" + key }, label))
-      : [["user", "用户"], ["assistant", "模型回复"], ["tool", "工具调用"], ["system", "系统"], ["result", "结果"], ["layer-hook", "Hook"]].map(([key, label]) => h("span", { class: "legend k-" + key }, label));
+      : [["user", t("用户")], ["assistant", t("模型回复")], ["tool", t("工具调用")], ["system", t("系统")], ["result", t("结果")], ["layer-hook", "Hook"]].map(([key, label]) => h("span", { class: "legend k-" + key }, label));
     clear(
       railPanel.querySelector(".rail-legend"),
-      h("strong", {}, hasPhase ? "步骤条 · Jev 阶段" : "步骤条"),
+      h("strong", {}, hasPhase ? t("步骤条 · Jev 阶段") : t("步骤条")),
       legend,
-      h("span", { class: "legend error" }, "工具报错"),
-      h("span", { class: "legend turning" }, "转折点"),
-      noted.size ? h("span", { class: "legend noted" }, "批注 " + noted.size) : null,
-      state.highlight ? h("span", { class: "legend flagged" }, "高亮：" + state.highlight.label + "（" + state.highlight.steps.size + "）") : null
+      h("span", { class: "legend error" }, t("工具报错")),
+      h("span", { class: "legend turning" }, t("转折点")),
+      noted.size ? h("span", { class: "legend noted" }, t("批注 {count}", { count: noted.size })) : null,
+      state.highlight ? h("span", { class: "legend flagged" }, t("高亮：{label}（{count}）", { label: state.highlight.label, count: state.highlight.steps.size })) : null
     );
       visible.forEach((step) => rail.children[step - 1]?.classList.add("in-view"));
   }
@@ -374,25 +377,25 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
           item,
           h("span", { class: "context-bar" + (item.measured ? "" : " estimated"), style: { height: Math.max(item.context ? 4 : 0, item.ratio * 100) + "%" } }),
           item.compaction ? "compaction" : "",
-          "#" + item.step + " · 上下文 " + (item.context == null ? "—" : formatCount(item.context) + " tokens" + (item.measured ? "" : "（估算）")) + (item.compaction ? " · 压缩边界" : "")
+          "#" + item.step + " · " + t("上下文 {value}", { value: item.context == null ? "—" : formatCount(item.context) + " tokens" + (item.measured ? "" : t("（估算）")) }) + (item.compaction ? " · " + t("压缩边界") : "")
         )
       )
     );
     clear(
       clockRow,
-      cells.map((item) => cell(item, null, "heat-" + item.heat, "#" + item.step + " · " + (item.duration_ms == null ? "无时间" : "到下一步 " + formatDuration(item.duration_ms))))
+      cells.map((item) => cell(item, null, "heat-" + item.heat, "#" + item.step + " · " + (item.duration_ms == null ? t("无时间") : t("到下一步 {duration}", { duration: formatDuration(item.duration_ms) }))))
     );
     const measured = metrics.context_measured_steps > 0;
     const facts = [
-      hasContext ? "上下文峰值 " + formatCount(metrics.context_peak) + (measured ? "" : "（按字数估算）") + (metrics.context_window ? " / 窗口 " + formatCount(metrics.context_window) : "") : null,
-      metrics.compactions ? "压缩 " + metrics.compactions + " 次" : null,
-      metrics.longest_gap_ms != null ? "最长停顿 " + formatDuration(metrics.longest_gap_ms) : null,
+      hasContext ? t("上下文峰值 {peak}", { peak: formatCount(metrics.context_peak) }) + (measured ? "" : t("（按字数估算）")) + (metrics.context_window ? " / " + t("窗口 {window}", { window: formatCount(metrics.context_window) }) : "") : null,
+      metrics.compactions ? t("压缩 {count} 次", { count: metrics.compactions }) : null,
+      metrics.longest_gap_ms != null ? t("最长停顿 {duration}", { duration: formatDuration(metrics.longest_gap_ms) }) : null,
     ].filter(Boolean);
     clear(
       trackLegend,
       facts.length ? h("span", {}, facts.join(" · ")) : null,
-      hasContext ? h("span", { class: "legend context" }, "上下文") : null,
-      hasContext && metrics.compactions ? h("span", { class: "legend compaction" }, "压缩边界") : null,
+      hasContext ? h("span", { class: "legend context" }, t("上下文")) : null,
+      hasContext && metrics.compactions ? h("span", { class: "legend compaction" }, t("压缩边界")) : null,
       hasClock ? [["fast", "<10s"], ["normal", "<1min"], ["slow", "<5min"], ["stall", "≥5min"]].map(([key, label]) => h("span", { class: "legend heat-" + key }, label)) : null
     );
   }
@@ -400,7 +403,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   // ---- transcript -----------------------------------------------------------------
 
   function renderTranscriptTools() {
-    const roleButtons = [["user", "用户"], ["assistant", "模型"], ["system", "系统/Hook"], ["result", "结果"]].map(([role, label]) => {
+    const roleButtons = [["user", t("用户")], ["assistant", t("模型")], ["system", t("系统/Hook")], ["result", t("结果")]].map(([role, label]) => {
       const pressed = role === "assistant" ? state.roles.has("assistant") : state.roles.has(role);
       return h(
         "button",
@@ -417,26 +420,26 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
         label
       );
     });
-    const search = h("input", { type: "search", placeholder: "搜索消息、命令、输出", value: state.search });
+    const search = h("input", { type: "search", placeholder: t("搜索消息、命令、输出"), value: state.search });
     search.addEventListener("input", debounce(() => { state.search = search.value.trim(); loadMessages(); }, 220));
     const only = state.highlight
-      ? h("label", { class: "only-toggle" }, h("input", { type: "checkbox", checked: state.onlyHighlighted, onchange: (event) => { state.onlyHighlighted = event.target.checked; loadMessages(); } }), "只看高亮步骤")
+      ? h("label", { class: "only-toggle" }, h("input", { type: "checkbox", checked: state.onlyHighlighted, onchange: (event) => { state.onlyHighlighted = event.target.checked; loadMessages(); } }), t("只看高亮步骤"))
       : null;
-    const clearHighlight = state.highlight ? h("button", { type: "button", class: "link-button", onclick: () => setHighlight(null, null) }, "清除高亮") : null;
-    const compact = h("button", { type: "button", "aria-pressed": String(Boolean(state.compact)), title: "一步一行（c）", onclick: () => setCompact(!state.compact) }, "紧凑");
+    const clearHighlight = state.highlight ? h("button", { type: "button", class: "link-button", onclick: () => setHighlight(null, null) }, t("清除高亮")) : null;
+    const compact = h("button", { type: "button", "aria-pressed": String(Boolean(state.compact)), title: t("一步一行（c）"), onclick: () => setCompact(!state.compact) }, t("紧凑"));
     const training = h(
       "button",
       {
         type: "button",
         "aria-pressed": String(Boolean(state.training)),
-        title: "SFT 训练视角：模型自己的回合（被训练）高亮，上下文变淡",
+        title: t("SFT 训练视角：模型自己的回合（被训练）高亮，上下文变淡"),
         onclick: () => {
           state.training = !state.training;
           transcript.classList.toggle("training-view", state.training);
           renderTranscriptTools();
         },
       },
-      "训练视角"
+      t("训练视角")
     );
     clear(transcriptTools, h("div", { class: "role-filters" }, roleButtons), search, only, clearHighlight, compact, training, exportPanel, shortcuts);
   }
@@ -449,7 +452,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   const PAGE = 300;
   async function loadMessages(offset = 0, mode = "replace", limit = PAGE) {
     const token = ++messageToken;
-    if (mode === "replace") clear(transcript, empty("读取消息…"));
+    if (mode === "replace") clear(transcript, empty(t("读取消息…")));
     const onlyHighlighted = state.onlyHighlighted && state.highlight;
     const params = onlyHighlighted
       ? { steps: [...state.highlight.steps].join(","), limit: 500 }
@@ -471,19 +474,19 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       transcript.replaceChildren(...nodes);
       windowStart = payload.offset;
       windowEnd = payload.offset + payload.items.length;
-      if (!payload.items.length) transcript.append(empty("没有符合筛选的消息"));
+      if (!payload.items.length) transcript.append(empty(t("没有符合筛选的消息")));
     }
     clear(
       earlier,
       !onlyHighlighted && windowStart > 0
-        ? h("button", { type: "button", onclick: () => loadMessages(Math.max(0, windowStart - PAGE), "prepend", Math.min(PAGE, windowStart)) }, "加载前面的（还有 " + windowStart + " 条）")
+        ? h("button", { type: "button", onclick: () => loadMessages(Math.max(0, windowStart - PAGE), "prepend", Math.min(PAGE, windowStart)) }, t("加载前面的（还有 {count} 条）", { count: windowStart }))
         : null
     );
     clear(
       more,
       !onlyHighlighted && windowEnd < payload.total
-        ? h("button", { type: "button", onclick: () => loadMessages(windowEnd, "append") }, "继续加载（" + windowEnd + " / " + payload.total + "）")
-        : h("span", { class: "muted" }, payload.total + " 条消息")
+        ? h("button", { type: "button", onclick: () => loadMessages(windowEnd, "append") }, t("继续加载（{loaded} / {total}）", { loaded: windowEnd, total: payload.total }))
+        : h("span", { class: "muted" }, t("{count} 条消息", { count: payload.total }))
     );
     renderTranscriptMarks();
   }
@@ -495,15 +498,15 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     return h(
       "span",
       { class: "training-badge" + (tokens.trained ? " trained" : "") },
-      tokens.trained ? "训练 " + formatCount(tokens.trained) : "上下文 " + formatCount(tokens.context),
-      residueSteps.has(step) ? " · 含 harness 痕迹" : ""
+      tokens.trained ? t("训练 {count}", { count: formatCount(tokens.trained) }) : t("上下文 {value}", { value: formatCount(tokens.context) }),
+      residueSteps.has(step) ? " · " + t("含 harness 痕迹") : ""
     );
   }
 
   function stepFlags(step) {
     const labels = [];
     const suppressed = new Set(run.signals?.suppressed || []);
-    (run.signals?.flags || []).forEach((flag) => { if (!suppressed.has(flag.key) && flag.steps.includes(step)) labels.push([flag.label, flag.severity]); });
+    (run.signals?.flags || []).forEach((flag) => { if (!suppressed.has(flag.key) && flag.steps.includes(step)) labels.push([tb(flag.label), flag.severity]); });
     const record = (state.jev?.steps?.steps || []).find((item) => item.step === step);
     const thresholds = ctx.taxonomy.jev_thresholds || {};
     const unvalidated = new Set(ctx.taxonomy.jev_unvalidated || []);
@@ -511,7 +514,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       if (key === "notices_problem" || unvalidated.has(key)) return;
       if (p >= (thresholds[key] ?? 0.5)) labels.push(["Jev · " + jevLabel(key) + " " + Math.round(p * 100) + "%", "jev"]);
     });
-    if (record?.work && record.work !== "polish") labels.push(["改动：" + (WORK_LABELS[record.work] || record.work), "muted"]);
+    if (record?.work && record.work !== "polish") labels.push([t("改动：{work}", { work: WORK_LABELS[record.work] || record.work }), "muted"]);
     return { labels, phase: record?.phase, problem: (record?.p?.notices_problem || 0) >= 0.5 };
   }
 
@@ -529,9 +532,9 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       h("span", { class: "message-summary" }, compactSummary(message)),
       trainingBadge(message.step),
       marks,
-      h("button", { type: "button", class: "turning-button", title: "给这一步写批注（a）", onclick: () => notes.edit(noteSlot, message.step) }, "批注"),
+      h("button", { type: "button", class: "turning-button", title: t("给这一步写批注（a）"), onclick: () => notes.edit(noteSlot, message.step) }, t("批注")),
       message.role === "assistant" || message.role === "tool"
-        ? h("button", { type: "button", class: "turning-button", title: "把这一步记为从正轨走偏的转折点", onclick: () => api_.setTurning(message.step) }, "设为转折点")
+        ? h("button", { type: "button", class: "turning-button", title: t("把这一步记为从正轨走偏的转折点"), onclick: () => api_.setTurning(message.step) }, t("设为转折点"))
         : null
     );
     const noteSlot = h("div", { class: "step-notes" });
@@ -543,13 +546,13 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     });
     if (message.thinking) {
       const preview = message.thinking.length > 280 ? message.thinking.slice(0, 280) + "…" : message.thinking;
-      const block = h("details", { class: "thinking-detail" }, h("summary", {}, "思考 · " + preview.replace(/\s+/g, " ")), clipped("div", "thinking-text", message.thinking));
+      const block = h("details", { class: "thinking-detail" }, h("summary", {}, t("思考") + " · " + preview.replace(/\s+/g, " ")), clipped("div", "thinking-text", message.thinking));
       article.append(block);
     }
     if (message.text) article.append(clipped("div", "message-text", message.text));
-    appendImages(article, message.images, "消息图片");
+    appendImages(article, message.images, t("消息图片"));
     message.tools.forEach((tool) => article.append(renderTool(tool)));
-    if (message.native_result) article.append(details("原生 result 记录", JSON.stringify(message.native_result, null, 2)));
+    if (message.native_result) article.append(details(t("原生 result 记录"), JSON.stringify(message.native_result, null, 2)));
     return article;
   }
 
@@ -562,7 +565,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       clear(
         marks,
         info.phase ? chip(PHASE_LABELS[info.phase] || info.phase, "phase k-" + info.phase) : null,
-        info.problem ? chip("Jev · 发现问题", "jev-soft") : null,
+        info.problem ? chip(t("Jev · 发现问题"), "jev-soft") : null,
         info.labels.map(([label, tone]) => chip(label, tone))
       );
       article.classList.toggle("highlighted", Boolean(state.highlight?.steps.has(step)));
@@ -582,7 +585,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
           { class: "tool-identity" },
           h("strong", {}, tool.name),
           tool.layer && tool.layer !== "base" ? chip(LAYER_LABELS[tool.layer], "layer") : null,
-          tool.mutation ? chip("写操作", "muted") : null,
+          tool.mutation ? chip(t("写操作"), "muted") : null,
           tool.raw_name && tool.raw_name !== tool.name ? h("code", { class: "tool-raw-name" }, tool.raw_name) : null
         ),
         h(
@@ -590,8 +593,8 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
           { class: "tool-call-status" + (result?.is_error ? " error" : "") },
           h(
             "span",
-            result?.error_inferred ? { title: "源数据没有报错标记，由返回文本推断（Exit code / tool_use_error / isError）" } : {},
-            result ? (result.is_error ? (result.error_inferred ? "报错（推断）" : "报错") : "返回") : "无返回"
+            result?.error_inferred ? { title: t("源数据没有报错标记，由返回文本推断（Exit code / tool_use_error / isError）") } : {},
+            result ? (result.is_error ? (result.error_inferred ? t("报错（推断）") : t("报错")) : t("返回")) : t("无返回")
           ),
           h("code", {}, tool.id)
         )
@@ -601,12 +604,12 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     const change = editView(tool.input);
     if (change) {
       box.append(details(CHANGE_LABELS[change.kind] + (change.path ? " · " + change.path : ""), changeBody(change), true));
-      box.append(details("原始输入", folded(input), false));
+      box.append(details(t("原始输入"), folded(input), false));
     } else {
-      box.append(details("输入", folded(input), false));
+      box.append(details(t("输入"), folded(input), false));
     }
-    const output = result ? result.text : "没有匹配的工具返回";
-    box.append(details(result?.is_error ? "返回 · 报错" : "返回", folded(output), Boolean(result?.is_error)));
+    const output = result ? result.text : t("没有匹配的工具返回");
+    box.append(details(result?.is_error ? t("返回 · 报错") : t("返回"), folded(output), Boolean(result?.is_error)));
     if (tool.repeat_of && result) box.append(repeatDiff(tool));
     appendImages(box, result?.images || [], tool.name);
     const child = spawned.get(tool.id);
@@ -615,7 +618,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
         h(
           "a",
           { class: "spawn-link", href: "#/t/" + encodeURIComponent(child.id) },
-          "→ 打开子代理" + (child.subagent_type ? " " + child.subagent_type : "") + " · " + (child.steps ?? "?") + " 步" + (child.tool_errors ? " · 报错 " + child.tool_errors : "")
+          t("→ 打开子代理") + (child.subagent_type ? " " + child.subagent_type : "") + " · " + t("{count} 步", { count: child.steps ?? "?" }) + (child.tool_errors ? " · " + t("报错 {count}", { count: child.tool_errors }) : "")
         )
       );
     }
@@ -630,7 +633,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       if (!src) return;
       const element = h("img", { loading: "lazy", alt: label + " #" + (index + 1), src });
       element.addEventListener("click", () => ctx.openImage(src, element.alt));
-      element.addEventListener("error", () => element.replaceWith(h("span", { class: "chip muted" }, "图片不可读")));
+      element.addEventListener("error", () => element.replaceWith(h("span", { class: "chip muted" }, t("图片不可读"))));
       gallery.append(element);
     });
     target.append(gallery);
@@ -641,7 +644,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     const fold = foldText(text);
     if (!fold.folded) return h("pre", {}, text);
     const pre = h("pre", {}, fold.head);
-    const button = h("button", { type: "button", class: "fold-button", onclick: () => { pre.textContent = text; button.remove(); tailPre.remove(); } }, "… 展开中间 " + formatCount(fold.hidden) + " " + fold.unit + " …");
+    const button = h("button", { type: "button", class: "fold-button", onclick: () => { pre.textContent = text; button.remove(); tailPre.remove(); } }, t("… 展开中间 {count} {unit} …", { count: formatCount(fold.hidden), unit: UNIT_LABELS[fold.unit] || fold.unit }));
     const tailPre = h("pre", {}, fold.tail);
     return h("div", { class: "folded-output" }, pre, button, tailPre);
   }
@@ -664,8 +667,8 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
     }
     return h("div", { class: "change-hunks" }, change.hunks.map((hunk, index) => {
       const diff = lineDiff(hunk.before, hunk.after);
-      const label = change.hunks.length > 1 ? h("div", { class: "muted" }, "第 " + (index + 1) + " 处 / 共 " + change.hunks.length + " 处") : null;
-      if (!diff) return h("div", {}, label, h("div", { class: "muted" }, "改动太长，不做逐行对比：先是原文，后是新文"), folded(hunk.before), folded(hunk.after));
+      const label = change.hunks.length > 1 ? h("div", { class: "muted" }, t("第 {n} 处 / 共 {total} 处", { n: index + 1, total: change.hunks.length })) : null;
+      if (!diff) return h("div", {}, label, h("div", { class: "muted" }, t("改动太长，不做逐行对比：先是原文，后是新文")), folded(hunk.before), folded(hunk.after));
       return h("div", {}, label, diffLines(diff.map((line) => ({ op: line.op === "=" ? " " : line.op, text: line.text }))));
     }));
   }
@@ -685,14 +688,14 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
             const earlier = page.items.flatMap((message) => message.tools).find((item) => item.id === tool.repeat_of.id);
             const diff = lineDiff(earlier?.result?.text || "", tool.result?.text || "");
             if (!diff) {
-              clear(slot, h("span", { class: "muted" }, "输出太长，不做逐行对比"));
+              clear(slot, h("span", { class: "muted" }, t("输出太长，不做逐行对比")));
             } else if (diff.every((line) => line.op === "=")) {
-              clear(slot, h("span", { class: "muted" }, "和 #" + tool.repeat_of.step + " 的输出完全一样"));
+              clear(slot, h("span", { class: "muted" }, t("和 #{step} 的输出完全一样", { step: tool.repeat_of.step })));
             } else {
               const changed = diff.filter((line) => line.op !== "=").length;
               clear(
                 slot,
-                h("div", { class: "muted" }, "与 #" + tool.repeat_of.step + " 相比，" + changed + " 行不同（- 那次 / + 这次）"),
+                h("div", { class: "muted" }, t("与 #{step} 相比，{count} 行不同（- 那次 / + 这次）", { step: tool.repeat_of.step, count: changed })),
                 h("pre", { class: "diff" }, diff.filter((line, index) => line.op !== "=" || diff.slice(Math.max(0, index - 2), index + 3).some((near) => near.op !== "=")).map((line) =>
                   h("span", { class: "diff-line " + (line.op === "+" ? "add" : line.op === "-" ? "del" : "same") }, line.op + " " + line.text + "\n")
                 ))
@@ -703,7 +706,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
           }
         },
       },
-      "同一命令在 #" + tool.repeat_of.step + " 跑过 · 对比输出"
+      t("同一命令在 #{step} 跑过 · 对比输出", { step: tool.repeat_of.step })
     );
     return h("div", { class: "repeat-row" }, button, slot);
   }
@@ -715,7 +718,7 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
       return element;
     }
     element.textContent = text.slice(0, TEXT_CLIP) + "\n…";
-    const button = h("button", { type: "button", class: "link-button", onclick: () => { element.textContent = text; button.remove(); } }, "展开剩余 " + formatCount(text.length - TEXT_CLIP) + " 字");
+    const button = h("button", { type: "button", class: "link-button", onclick: () => { element.textContent = text; button.remove(); } }, t("展开剩余 {count} 字", { count: formatCount(text.length - TEXT_CLIP) }));
     return h("div", {}, element, button);
   }
 
@@ -840,21 +843,21 @@ export async function renderReader(root, trajectoryId, ctx, still, params = new 
   const shortcuts = h(
     "details",
     { class: "shortcuts" },
-    h("summary", {}, "快捷键"),
+    h("summary", {}, t("快捷键")),
     h(
       "dl",
       {},
       [
-        ["j / k", "下一步 / 上一步"],
-        ["J / K", "只在模型步骤间跳"],
-        ["n / p", "下一个 / 上一个高亮步骤"],
-        ["e / E", "下一个 / 上一个工具报错"],
-        ["t", "把当前步设为转折点"],
-        ["a", "给当前步写批注"],
-        ["c", "紧凑模式（一步一行）"],
-        ["o", "紧凑模式下展开当前步"],
-        ["/", "搜索消息"],
-        ["[ / ]", "练习队列上一条 / 下一条"],
+        ["j / k", t("下一步 / 上一步")],
+        ["J / K", t("只在模型步骤间跳")],
+        ["n / p", t("下一个 / 上一个高亮步骤")],
+        ["e / E", t("下一个 / 上一个工具报错")],
+        ["t", t("把当前步设为转折点")],
+        ["a", t("给当前步写批注")],
+        ["c", t("紧凑模式（一步一行）")],
+        ["o", t("紧凑模式下展开当前步")],
+        ["/", t("搜索消息")],
+        ["[ / ]", t("练习队列上一条 / 下一条")],
       ].map(([key, text]) => h("div", {}, h("dt", {}, h("kbd", {}, key)), h("dd", {}, text)))
     )
   );
@@ -929,14 +932,14 @@ function renderEpisodeStrip(episode, currentId, ctx) {
   if (!episode || members <= 1) return null;
   const tone = (item) => (ctx.blind ? "muted" : outcomeTone(item.outcome_status));
   const lane = (item) => {
-    if (item.missing) return h("span", { class: "episode-node missing", title: "这一段没有在导入的数据里" }, "第 " + item.segment + " 段缺失");
-    const label = item.role === "main" ? "主轨迹" : "第 " + (item.segment ?? "?") + " 段";
+    if (item.missing) return h("span", { class: "episode-node missing", title: t("这一段没有在导入的数据里") }, t("第 {n} 段缺失", { n: item.segment }));
+    const label = item.role === "main" ? t("主轨迹") : t("第 {n} 段", { n: item.segment ?? "?" });
     return h(
       "a",
-      { class: "episode-node" + (item.current ? " current" : ""), href: "#/t/" + encodeURIComponent(item.id), title: item.context_reason ? "分段原因：" + item.context_reason : "" },
+      { class: "episode-node" + (item.current ? " current" : ""), href: "#/t/" + encodeURIComponent(item.id), title: item.context_reason ? t("分段原因：{reason}", { reason: item.context_reason }) : "" },
       h("span", { class: "dot " + tone(item) }),
       h("b", {}, label),
-      h("span", {}, item.steps + " 步" + (item.tool_errors ? " · 报错 " + item.tool_errors : "") + (item.reviewed ? " · 已读" : ""))
+      h("span", {}, t("{count} 步", { count: item.steps }) + (item.tool_errors ? " · " + t("报错 {count}", { count: item.tool_errors }) : "") + (item.reviewed ? " · " + t("已读") : ""))
     );
   };
   const threads = [];
@@ -948,11 +951,11 @@ function renderEpisodeStrip(episode, currentId, ctx) {
     h(
       "div",
       { class: "episode-sub" + (sub.current ? " current" : "") },
-      h("a", { href: "#/t/" + encodeURIComponent(sub.id) }, h("span", { class: "dot " + tone(sub) }), h("b", {}, sub.subagent_type || "子代理"), " ", sub.description || sub.run_id),
-      h("span", { class: "muted" }, sub.steps + " 步" + (sub.tool_errors ? " · 报错 " + sub.tool_errors : "")),
+      h("a", { href: "#/t/" + encodeURIComponent(sub.id) }, h("span", { class: "dot " + tone(sub) }), h("b", {}, sub.subagent_type || t("子代理")), " ", sub.description || sub.run_id),
+      h("span", { class: "muted" }, t("{count} 步", { count: sub.steps }) + (sub.tool_errors ? " · " + t("报错 {count}", { count: sub.tool_errors }) : "")),
       sub.spawn
-        ? h("a", { class: "link-button", href: "#/t/" + encodeURIComponent(sub.spawn.trajectory_id) + "?step=" + sub.spawn.step }, "← 由 " + sub.spawn.tool + " #" + sub.spawn.step + " 派出")
-        : h("span", { class: "muted" }, "派出位置未知")
+        ? h("a", { class: "link-button", href: "#/t/" + encodeURIComponent(sub.spawn.trajectory_id) + "?step=" + sub.spawn.step }, t("← 由 {tool} #{step} 派出", { tool: sub.spawn.tool, step: sub.spawn.step }))
+        : h("span", { class: "muted" }, t("派出位置未知"))
     )
   );
   const summary = episode.summary || {};
@@ -963,7 +966,7 @@ function renderEpisodeStrip(episode, currentId, ctx) {
       "div",
       { class: "episode-head" },
       h("span", { class: "eyebrow" }, "Episode"),
-      h("span", { class: "muted" }, [summary.steps != null ? "共 " + summary.steps + " 步" : null, summary.tool_errors ? "工具报错 " + summary.tool_errors : null, episode.head_missing ? "主轨迹未导入" : null].filter(Boolean).join(" · "))
+      h("span", { class: "muted" }, [summary.steps != null ? t("共 {count} 步", { count: summary.steps }) : null, summary.tool_errors ? t("工具报错 {count}", { count: summary.tool_errors }) : null, episode.head_missing ? t("主轨迹未导入") : null].filter(Boolean).join(" · "))
     ),
     h("div", { class: "episode-lanes" }, threads),
     subagents.length ? h("div", { class: "episode-subs" }, subagents) : null
@@ -972,15 +975,15 @@ function renderEpisodeStrip(episode, currentId, ctx) {
 
 function jevLabel(key) {
   return {
-    notices_problem: "发现问题",
-    ignores_error: "忽略报错",
-    misreads_observation: "误读工具返回",
-    thought_action_mismatch: "思行不一",
-    claims_done: "宣称完成",
-    harness_reliance: "依赖 harness",
-    filler: "空转/道歉",
-    polish: "打磨",
-    violates_constraint: "违反题目约束",
+    notices_problem: t("发现问题"),
+    ignores_error: t("忽略报错"),
+    misreads_observation: t("误读工具返回"),
+    thought_action_mismatch: t("思行不一"),
+    claims_done: t("宣称完成"),
+    harness_reliance: t("依赖 harness"),
+    filler: t("空转/道歉"),
+    polish: t("打磨"),
+    violates_constraint: t("违反题目约束"),
   }[key] || key;
 }
 
@@ -1001,8 +1004,8 @@ function renderReadiness(run, ctx, reader) {
       h(
         "div",
         {},
-        h("h2", {}, "训练就绪 · " + (result.ready ? "可直接训练" : "有阻断问题")),
-        h("p", {}, "约 " + formatCount(result.tokens) + " tokens（上限 " + formatCount(result.max_seq_len) + "）· 训练 token 占 " + Math.round((result.trained_share || 0) * 100) + "% · 图片 " + result.images)
+        h("h2", {}, t("训练就绪") + " · " + (result.ready ? t("可直接训练") : t("有阻断问题"))),
+        h("p", {}, t("约 {tokens} tokens（上限 {max}）· 训练 token 占 {share}% · 图片 {images}", { tokens: formatCount(result.tokens), max: formatCount(result.max_seq_len), share: Math.round((result.trained_share || 0) * 100), images: result.images }))
       )
     ),
     result.issues.length
@@ -1013,25 +1016,24 @@ function renderReadiness(run, ctx, reader) {
             h(
               "div",
               { class: "ledger-row" },
-              h("div", { class: "ledger-meta" }, chip(labels[issue.key] || issue.key, READINESS_TONE[issue.severity] || "muted"), issue.continued ? h("small", {}, "（后面还有分段，不算问题）") : null),
-              h("div", { class: "ledger-text" }, issue.detail, " ", ...(issue.steps || []).slice(0, 8).map((step) => h("button", { type: "button", class: "step-link", onclick: () => reader.jump(step) }, "#" + step)))
+              h("div", { class: "ledger-meta" }, chip(tb(labels[issue.key]) || issue.key, READINESS_TONE[issue.severity] || "muted"), issue.continued ? h("small", {}, t("（后面还有分段，不算问题）")) : null),
+              h("div", { class: "ledger-text" }, tb(issue.detail), " ", ...(issue.steps || []).slice(0, 8).map((step) => h("button", { type: "button", class: "step-link", onclick: () => reader.jump(step) }, "#" + step)))
             )
           )
         )
-      : h("p", { class: "muted" }, "没有发现问题"),
+      : h("p", { class: "muted" }, t("没有发现问题")),
     Object.keys(trained).length
       ? h(
           "p",
           { class: "hint" },
-          "训练 token 里用到 harness 组件：" + Object.entries(trained).map(([key, steps]) => (USE_LABELS[key] || key) + " " + steps.length + " 步").join("、") +
-            "（组件和逐步位置见上方「Harness 增加的组件」）"
+          t("训练 token 里用到 harness 组件：{list}（组件和逐步位置见上方「Harness 增加的组件」）", { list: Object.entries(trained).map(([key, steps]) => t("{label} {count} 步", { label: USE_LABELS[key] || key, count: steps.length })).join(t("、")) })
         )
       : null
   );
 }
 
-const USE_LABELS = { calls: "调用", files: "参数里", mentions: "提到", outputs: "用到其产出" };
-const KIND_LABELS = { mcp: "MCP", tool: "工具", skill: "Skill", subagent: "子代理类型", hook: "Hook", instruction: "指令", file: "harness 文件" };
+const USE_LABELS = { calls: t("调用"), files: t("参数里"), mentions: t("提到"), outputs: t("用到其产出") };
+const KIND_LABELS = { mcp: "MCP", tool: t("工具"), skill: "Skill", subagent: t("子代理类型"), hook: "Hook", instruction: t("指令"), file: t("harness 文件") };
 const BASE_LABELS = { "claude-code": "Claude Code", codex: "Codex", pi: "pi" };
 
 /** What the harness added on top of the stock agent, and which trained steps use it. */
@@ -1041,11 +1043,11 @@ function renderHarness(run, reader) {
   const used = (item) => ["calls", "files", "mentions", "outputs"].flatMap((key) => item[key] || []);
   const components = [...trace.components].sort((a, b) => used(b).length - used(a).length);
   const base = BASE_LABELS[trace.base];
-  const jevButton = h("button", { type: "button", class: "link-button" }, "高亮 Jev 判为依赖 harness 的步骤");
+  const jevButton = h("button", { type: "button", class: "link-button" }, t("高亮 Jev 判为依赖 harness 的步骤"));
   jevButton.addEventListener("click", () => {
     const steps = reader.state.jev?.steps?.summary?.flagged?.harness_reliance || [];
-    if (steps.length) reader.highlight("Jev · 依赖 harness", steps);
-    else jevButton.textContent = reader.state.jev?.steps ? "Jev 没有标出依赖 harness 的步骤" : "先在「Jev 逐步分析」里运行 Jev";
+    if (steps.length) reader.highlight(t("Jev · 依赖 harness"), steps);
+    else jevButton.textContent = reader.state.jev?.steps ? t("Jev 没有标出依赖 harness 的步骤") : t("先在「Jev 逐步分析」里运行 Jev");
   });
   return h(
     "section",
@@ -1056,13 +1058,13 @@ function renderHarness(run, reader) {
       h(
         "div",
         {},
-        h("h2", {}, "Harness 增加的组件"),
+        h("h2", {}, t("Harness 增加的组件")),
         h(
           "p",
           {},
           base
-            ? "相对原生 " + base + " 多出来的工具、MCP、Skill、Hook、指令段落和 harness 提供的文件；步号是模型自己的回合（训练 token）里用到它的地方"
-            : "认不出基座 agent，只按 MCP、Skill、Hook 和注入的指令判断"
+            ? t("相对原生 {base} 多出来的工具、MCP、Skill、Hook、指令段落和 harness 提供的文件；步号是模型自己的回合（训练 token）里用到它的地方", { base })
+            : t("认不出基座 agent，只按 MCP、Skill、Hook 和注入的指令判断")
         )
       )
     ),
@@ -1081,26 +1083,26 @@ function renderHarness(run, reader) {
                 { class: "ledger-text" },
                 steps.length
                   ? [
-                      ["calls", "files", "mentions", "outputs"].filter((key) => item[key]?.length).map((key) => USE_LABELS[key] + " " + item[key].length + " 步").join(" · "),
+                      ["calls", "files", "mentions", "outputs"].filter((key) => item[key]?.length).map((key) => t("{label} {count} 步", { label: USE_LABELS[key], count: item[key].length })).join(" · "),
                       " ",
-                      h("button", { type: "button", class: "link-button", onclick: () => reader.highlight(KIND_LABELS[item.kind] + " · " + item.name, steps) }, "高亮"),
+                      h("button", { type: "button", class: "link-button", onclick: () => reader.highlight(KIND_LABELS[item.kind] + " · " + item.name, steps) }, t("高亮")),
                       ...steps.slice(0, 8).map((step) => h("button", { type: "button", class: "step-link", onclick: () => reader.jump(step) }, "#" + step)),
                     ]
-                  : h("span", { class: "muted" }, item.kind === "instruction" ? "引用指令要靠语义判断（Jev）" : item.agent_output ? "agent 自己写的产物文件：harness 只规定了名字（命名约定），不算依赖" : "模型回合里没有用到"),
+                  : h("span", { class: "muted" }, item.kind === "instruction" ? t("引用指令要靠语义判断（Jev）") : item.agent_output ? t("agent 自己写的产物文件：harness 只规定了名字（命名约定），不算依赖") : t("模型回合里没有用到")),
                 item.topics?.length ? h("small", { class: "muted", style: { display: "block" } }, item.topics.join(" · ")) : null
               )
             );
           })
         )
-      : h("p", { class: "muted" }, base ? "和原生 " + base + " 相比没有发现额外组件" : "没有发现额外组件"),
-    components.length ? h("p", { class: "hint" }, "规则只看调用和字面提到；推理里是否真的依赖（打算用、解读输出、拿 harness 指令当理由）由 Jev 逐步判断。", jevButton) : null
+      : h("p", { class: "muted" }, base ? t("和原生 {base} 相比没有发现额外组件", { base }) : t("没有发现额外组件")),
+    components.length ? h("p", { class: "hint" }, t("规则只看调用和字面提到；推理里是否真的依赖（打算用、解读输出、拿 harness 指令当理由）由 Jev 逐步判断。"), jevButton) : null
   );
 }
 
 function renderRelated(run, ctx) {
   const card = h("section", { class: "panel inspector-card" });
   const sameTask = run.same_task || [];
-  if (!sameTask.length) return card.appendChild(h("div", { class: "panel-head" }, h("div", {}, h("h2", {}, "同一道题的其他尝试"), h("p", {}, "没有找到（按任务 id 或题面开头匹配）")))) && card;
+  if (!sameTask.length) return card.appendChild(h("div", { class: "panel-head" }, h("div", {}, h("h2", {}, t("同一道题的其他尝试")), h("p", {}, t("没有找到（按任务 id 或题面开头匹配）"))))) && card;
   const item = (entry, pairable) =>
     h(
       "div",
@@ -1109,11 +1111,11 @@ function renderRelated(run, ctx) {
       h(
         "a",
         { href: "#/t/" + encodeURIComponent(entry.id) },
-        (entry.group_role && entry.group_role !== "main" ? ROLE_LABELS[entry.group_role] + (entry.segment ? " " + entry.segment : "") + " · " : "") + (entry.model || entry.collection || "") + " · " + entry.steps + " 步"
+        (entry.group_role && entry.group_role !== "main" ? ROLE_LABELS[entry.group_role] + (entry.segment ? " " + entry.segment : "") + " · " : "") + (entry.model || entry.collection || "") + " · " + t("{count} 步", { count: entry.steps })
       ),
-      pairable ? h("a", { class: "link-button", href: "#/pair/" + encodeURIComponent(run.id) + "/" + encodeURIComponent(entry.id) }, "对照读") : null
+      pairable ? h("a", { class: "link-button", href: "#/pair/" + encodeURIComponent(run.id) + "/" + encodeURIComponent(entry.id) }, t("对照读")) : null
     );
-  card.append(h("div", { class: "panel-head" }, h("div", {}, h("h2", {}, "同一道题的其他尝试（" + sameTask.length + "）"), h("p", {}, "每行一个 episode；分段和子代理在顶部 Episode 条"))));
+  card.append(h("div", { class: "panel-head" }, h("div", {}, h("h2", {}, t("同一道题的其他尝试（{count}）", { count: sameTask.length })), h("p", {}, t("每行一个 episode；分段和子代理在顶部 Episode 条")))));
   card.append(sameTask.slice(0, 30).map((entry) => item(entry, true)));
   return card;
 }
@@ -1127,7 +1129,7 @@ function renderToolCatalog(run) {
   return h(
     "section",
     { class: "panel inspector-card" },
-    h("div", { class: "panel-head" }, h("div", {}, h("h2", {}, "工具目录"), h("p", {}, entries.filter((t) => t.observed).length + " 个实调 · " + entries.filter((t) => t.available_in_session).length + " 个声明可用"))),
+    h("div", { class: "panel-head" }, h("div", {}, h("h2", {}, t("工具目录")), h("p", {}, t("{observed} 个实调 · {declared} 个声明可用", { observed: entries.filter((entry) => entry.observed).length, declared: entries.filter((entry) => entry.available_in_session).length })))),
     h(
       "div",
       { class: "tool-bars" },
@@ -1139,7 +1141,7 @@ function renderToolCatalog(run) {
             "div",
             { class: "tool-label" },
             h("strong", {}, tool.name),
-            h("span", {}, [LAYER_LABELS[layerOf.get(tool.name) || (tool.name.startsWith("mcp__") ? "mcp" : "base")], tool.observed ? null : "未调用", errorsOf.get(tool.name) ? "报错 " + errorsOf.get(tool.name) : null].filter(Boolean).join(" · "))
+            h("span", {}, [LAYER_LABELS[layerOf.get(tool.name) || (tool.name.startsWith("mcp__") ? "mcp" : "base")], tool.observed ? null : t("未调用"), errorsOf.get(tool.name) ? t("报错 {count}", { count: errorsOf.get(tool.name) }) : null].filter(Boolean).join(" · "))
           ),
           h("div", { class: "tool-track" }, h("div", { class: "tool-fill", style: { width: (tool.call_count / max) * 100 + "%" } })),
           h("span", { class: "tool-value" }, String(tool.call_count))

@@ -1,6 +1,7 @@
 import { api } from "../api.js";
 import { clear, details, empty, h } from "../dom.js";
 import { formatBytes, formatClock, formatDuration, shortSha, terminalCards } from "../presentation.mjs";
+import { t } from "../i18n.mjs";
 
 /** Panels that only exist for MoH runs: terminal chain, artifact states, Workbench, inputs. */
 export function renderMohPanels(side, run, trajectoryId, ctx) {
@@ -22,15 +23,15 @@ function terminalPanel(run) {
     h("div", { class: "terminal-node " + item.state }, h("strong", {}, item.title), h("span", {}, item.detail))
   );
   return card(
-    "MoH 终止链路",
-    "生成成功不等于 Runtime 已交付",
+    t("MoH 终止链路"),
+    t("生成成功不等于 Runtime 已交付"),
     h("div", { class: "terminal-flow" }, cards[0], h("div", { class: "terminal-arrow" }, "→"), cards[1], h("div", { class: "terminal-arrow" }, "→"), cards[2])
   );
 }
 
 function artifactPanel(run, trajectoryId) {
   const states = run.artifact_states || [];
-  const diffs = h("div", { class: "diff-list" }, empty("读取 diff…"));
+  const diffs = h("div", { class: "diff-list" }, empty(t("读取 diff…")));
   api.artifactDiffs(trajectoryId).then(
     (result) =>
       clear(
@@ -42,16 +43,16 @@ function artifactPanel(run, trajectoryId) {
                 { class: "diff-row" },
                 h("span", {}, formatClock(diff.from_offset_ms) + " → " + formatClock(diff.to_offset_ms)),
                 h("code", {}, diff.from_sha + " → " + diff.to_sha),
-                h("span", {}, diff.unavailable ? "内容不可读" : "+" + diff.added + " / −" + diff.removed + " 行")
+                h("span", {}, diff.unavailable ? t("内容不可读") : t("+{added} / −{removed} 行", { added: diff.added, removed: diff.removed }))
               )
             )
-          : empty("artifact.html 内容没有变化")
+          : empty(t("artifact.html 内容没有变化"))
       ),
-    (error) => clear(diffs, empty("读取失败：" + error.message))
+    (error) => clear(diffs, empty(t("读取失败：{message}", { message: error.message })))
   );
   return card(
     "artifact.html",
-    states.length + " 个唯一状态（按 SHA 去重）",
+    t("{count} 个唯一状态（按 SHA 去重）", { count: states.length }),
     h(
       "div",
       { class: "artifact-states" },
@@ -65,10 +66,10 @@ function artifactPanel(run, trajectoryId) {
 
 function workbenchPanel(run, trajectoryId, ctx) {
   const calls = run.workbench || [];
-  if (!calls.length) return card("Slides Workbench", "这次运行没有调用");
+  if (!calls.length) return card("Slides Workbench", t("这次运行没有调用"));
   return card(
     "Slides Workbench",
-    calls.length + " 次调用 · 观察证据与 artifact SHA",
+    t("{count} 次调用 · 观察证据与 artifact SHA", { count: calls.length }),
     calls.map((call, index) => {
       const observation = call.observation || {};
       const body = [
@@ -85,13 +86,13 @@ function workbenchPanel(run, trajectoryId, ctx) {
           h(
             "div",
             { class: "workbench-meta" },
-            h("div", {}, h("strong", {}, formatDuration(observation.timings_ms?.total)), "耗时"),
-            h("div", {}, h("strong", {}, String(diagnostics.returned_count ?? "—") + " / " + String(diagnostics.total_count ?? "—")), "诊断"),
+            h("div", {}, h("strong", {}, formatDuration(observation.timings_ms?.total)), t("耗时")),
+            h("div", {}, h("strong", {}, String(diagnostics.returned_count ?? "—") + " / " + String(diagnostics.total_count ?? "—")), t("诊断")),
             h("div", {}, h("strong", {}, shortSha(observation.artifact_sha256)), "artifact")
           )
         );
       } else {
-        body.push(h("div", { class: "workbench-raw" }, call.raw_result || "无法解析"));
+        body.push(h("div", { class: "workbench-raw" }, call.raw_result || t("无法解析")));
       }
       return h("article", { class: "workbench-card" }, body);
     })
@@ -99,10 +100,10 @@ function workbenchPanel(run, trajectoryId, ctx) {
 }
 
 function promptPanel(prompt) {
-  const parts = [["system", "MoH system 扩展"], ["user", "MoH user 输入"]].map(([role, label]) => {
+  const parts = [["system", t("MoH system 扩展")], ["user", t("MoH user 输入")]].map(([role, label]) => {
     const part = prompt[role];
-    const status = part.status === "records_match" ? "记录与摘要一致" : part.status === "mismatch" ? "记录不一致" : "未验证";
+    const status = part.status === "records_match" ? t("记录与摘要一致") : part.status === "mismatch" ? t("记录不一致") : t("未验证");
     return details(label + " · " + status, part.text);
   });
-  return card("MoH 输入记录", "来源 " + prompt.source + "；不含 Claude Code 原生 system", ...parts);
+  return card(t("MoH 输入记录"), t("来源 {source}；不含 Claude Code 原生 system", { source: prompt.source }), ...parts);
 }

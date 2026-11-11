@@ -1,5 +1,6 @@
 import { api } from "../api.js";
 import { h } from "../dom.js";
+import { t, tb } from "../i18n.mjs";
 
 /**
  * Step annotations in the reader: notes under a step, an inline editor, and the Markdown
@@ -19,9 +20,9 @@ export function createAnnotations(reader, trajectoryId, onChange) {
   function labelSelect(value) {
     const select = h(
       "select",
-      { "aria-label": "标签（可选）" },
-      h("option", { value: "" }, "不加标签"),
-      (ctx.taxonomy?.labels || []).map((label) => h("option", { value: label.key }, label.label))
+      { "aria-label": t("标签（可选）") },
+      h("option", { value: "" }, t("不加标签")),
+      (ctx.taxonomy?.labels || []).map((label) => h("option", { value: label.key }, tb(label.label)))
     );
     select.value = value || "";
     return select;
@@ -29,7 +30,7 @@ export function createAnnotations(reader, trajectoryId, onChange) {
 
   function labelText(key) {
     const found = (ctx.taxonomy?.labels || []).find((label) => label.key === key);
-    return found ? found.label : key;
+    return found ? tb(found.label) : key;
   }
 
   /** Notes of one step, rendered into the slot that sits under the message head. */
@@ -44,7 +45,7 @@ export function createAnnotations(reader, trajectoryId, onChange) {
           h(
             "span",
             { class: "step-note-actions" },
-            h("button", { type: "button", class: "link-button", onclick: () => edit(slot, step, note) }, "改"),
+            h("button", { type: "button", class: "link-button", onclick: () => edit(slot, step, note) }, t("改")),
             h(
               "button",
               {
@@ -55,7 +56,7 @@ export function createAnnotations(reader, trajectoryId, onChange) {
                   await load();
                 },
               },
-              "删"
+              t("删")
             )
           )
         )
@@ -72,7 +73,7 @@ export function createAnnotations(reader, trajectoryId, onChange) {
     slot.querySelector("form.step-note-editor")?.remove();
     // In compact mode the step is collapsed and its notes hidden: open it first.
     slot.closest("article")?.classList.add("expanded");
-    const text = h("textarea", { rows: 3, placeholder: "这一步哪里好、哪里走偏、为什么" });
+    const text = h("textarea", { rows: 3, placeholder: t("这一步哪里好、哪里走偏、为什么") });
     text.value = note?.note || "";
     const label = labelSelect(note?.label);
     const status = h("span", { class: "save-status" });
@@ -93,14 +94,14 @@ export function createAnnotations(reader, trajectoryId, onChange) {
         },
       },
       text,
-      h("div", { class: "inline" }, label, h("button", { type: "submit", class: "primary" }, "保存批注"), h("button", { type: "button", class: "link-button", onclick: () => form.remove() }, "取消"), status)
+      h("div", { class: "inline" }, label, h("button", { type: "submit", class: "primary" }, t("保存批注")), h("button", { type: "button", class: "link-button", onclick: () => form.remove() }, t("取消")), status)
     );
     slot.append(form);
     text.focus();
   }
 
   function exportPanel() {
-    const range = h("input", { type: "text", placeholder: "步骤，如 3-9, 15（留空=批注过的步骤+转折点）" });
+    const range = h("input", { type: "text", placeholder: t("步骤，如 3-9, 15（留空=批注过的步骤+转折点）") });
     const hide = h("input", { type: "checkbox", checked: ctx.blind });
     const status = h("span", { class: "save-status" });
     async function fetchText() {
@@ -117,16 +118,16 @@ export function createAnnotations(reader, trajectoryId, onChange) {
       }
       return body;
     }
-    const copy = h("button", { type: "button" }, "复制 Markdown");
+    const copy = h("button", { type: "button" }, t("复制 Markdown"));
     copy.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(await fetchText());
-        status.textContent = "已复制";
+        status.textContent = t("已复制");
       } catch (error) {
         status.textContent = error.message;
       }
     });
-    const download = h("button", { type: "button" }, "下载 .md");
+    const download = h("button", { type: "button" }, t("下载 .md"));
     download.addEventListener("click", async () => {
       try {
         const blob = new Blob([await fetchText()], { type: "text/markdown" });
@@ -143,8 +144,8 @@ export function createAnnotations(reader, trajectoryId, onChange) {
     return h(
       "details",
       { class: "export-excerpt" },
-      h("summary", {}, "导出片段"),
-      h("div", { class: "export-excerpt-body" }, range, h("label", { class: "only-toggle" }, hide, "不写评分"), h("div", { class: "inline" }, copy, download, status))
+      h("summary", {}, t("导出片段")),
+      h("div", { class: "export-excerpt-body" }, range, h("label", { class: "only-toggle" }, hide, t("不写评分")), h("div", { class: "inline" }, copy, download, status))
     );
   }
 
