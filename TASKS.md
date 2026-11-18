@@ -231,3 +231,9 @@
 - [x] 同题 × checkpoint 矩阵（#/matrix）；A、B、C 重训还没打分，格子显示“未打分”
 - [ ] 给 agent 读的入口（Markdown 摘要、命令行 show、API 说明）
 - [ ] 性能：集合内搜索、列表行大小
+
+## 2026-11-18：RL run 1116c 轨迹分析
+- [x] niulai 重建后重新部署（代码在共享盘，库在本机）；`import-rl-run` 按步导入 RL rollout 和每条的奖励；已导入 step 0、step 9
+- [ ] 先记着，待查：双容器链路（11-17 15:14 起，`part0_dual_container`）没把附件放进沙箱。step 0 的 64 条带附件轨迹里 49 条读到了附件，step 9 的 48 条一条都没读到
+- [ ] 先记着，待查：模型看不到截图。轨迹文件里图片数据在，模型侧收到的是 `[image omitted]`；step 0 有 63/128 条、step 9 有 90/128 条在思考里明说看不到
+- [ ] 同题对比：RL checkpoint 还没有在 test50 上测过（只有起点模型 SFT C 修 mask ckpt180 有，旧评测链路）
