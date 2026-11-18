@@ -1149,6 +1149,39 @@ class WorkbenchService:
             "masked": sum(1 for row in rows if row["masked"]), "matched_decks": matched, "errors": errors,
         }
 
+    def import_rl_run(self, run_root: str, collection: str, steps: list[int] | None = None, progress: Callable[..., None] | None = None) -> dict[str, Any]:
+        """Index the rollouts of an RL run (optionally only some steps) as `collection`, and
+        each rollout's own sandbox reward under the label of the same name."""
+        supplied = Path(run_root).expanduser()
+        if not supplied.is_absolute():
+            raise ValueError("Path must be absolute")
+        base = supplied.resolve()
+        name = (collection or "").strip()
+        if not name:
+            raise ValueError("collection is required")
+        rows, trials, errors = v4_reward.read_rl_run(base, set(steps) if steps else None)
+        if not trials:
+            raise ValueError(f"No rollouts found under {base}/episodes" + (f" for steps {sorted(steps)}" if steps else ""))
+        report = {"collection": name, "run": str(base), "steps": sorted(steps) if steps else None, "trajectories": 0, "errors": errors}
+        for index, trial in enumerate(trials, start=1):
+            if progress:
+                progress(done=index - 1, message=f"{index}/{len(trials)} {trial.name}")
+            adapter = adapter_registry.detect(trial)
+            if adapter is None:
+                errors.append({"task_id": trial.name, "error": "not a Harbor trial"})
+                continue
+            try:
+                report["trajectories"] += len(self._index_source(adapter, trial, name, None, 0))
+            except Exception as error:
+                errors.append({"task_id": trial.name, "error": str(error)[:300]})
+        self.store.rebuild_episodes(name)
+        self.store.prune_step_text()
+        report["replaced_rewards"] = self.store.replace_v4_rewards(name, rows)
+        report["rewards"] = len(rows)
+        report["masked"] = sum(1 for row in rows if row["masked"])
+        report["matched_rewards"] = sum(1 for row in rows if self._v4_matches(row["task_id"], row["runs_root"]))
+        return report
+
     def _v4_matches(self, task_id: str, prefix: str) -> bool:
         return any(
             item["path"] == prefix or item["path"].startswith(prefix.rstrip("/") + "/")

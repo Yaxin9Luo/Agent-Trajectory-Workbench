@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS v4_rewards (
     has_errors INTEGER NOT NULL DEFAULT 0,
     payload TEXT NOT NULL,
     imported_at TEXT NOT NULL,
-    PRIMARY KEY (label, task_id)
+    PRIMARY KEY (label, task_id, runs_root)
 );
 CREATE INDEX IF NOT EXISTS v4_rewards_task ON v4_rewards(task_id);
 """
@@ -304,7 +304,17 @@ class Store:
                     if column not in existing:
                         self._db.execute(f"ALTER TABLE trajectories ADD COLUMN {column} {kind}")
                         migrated = True
+            # An RL run scores several rollouts of one task under one label, each with its
+            # own runs_root; indexes made before that had (label, task_id) as the key.
+            old_key = [row[1] for row in self._db.execute("PRAGMA table_info(v4_rewards)") if row[5]]
+            if old_key and "runs_root" not in old_key:
+                self._db.execute("ALTER TABLE v4_rewards RENAME TO v4_rewards_old")
+                self._db.execute("DROP INDEX IF EXISTS v4_rewards_task")
             self._db.executescript(SCHEMA)
+            if old_key and "runs_root" not in old_key:
+                self._db.execute("INSERT INTO v4_rewards SELECT * FROM v4_rewards_old")
+                self._db.execute("DROP TABLE v4_rewards_old")
+                self._db.commit()
             try:
                 self._db.execute(FTS_SCHEMA)
                 self.text_search = True
@@ -886,7 +896,7 @@ class Store:
     def v4_reward(self, label: str, task_id: str) -> dict[str, Any] | None:
         with self._locked():
             row = self._db.execute(
-                "SELECT payload FROM v4_rewards WHERE label = ? AND task_id = ?", (label, task_id)
+                "SELECT payload FROM v4_rewards WHERE label = ? AND task_id = ? ORDER BY runs_root LIMIT 1", (label, task_id)
             ).fetchone()
         return json.loads(row[0]) if row else None
 
@@ -904,8 +914,11 @@ class Store:
     def v4_labels(self) -> list[dict[str, Any]]:
         with self._locked():
             rows = self._db.execute(
-                "SELECT label, runs_root, COUNT(*) AS decks, SUM(masked) AS masked, MAX(imported_at) AS imported_at "
-                "FROM v4_rewards GROUP BY label, runs_root ORDER BY MAX(imported_at) DESC"
+                # An RL run has one runs_root per rollout: show what they share, their parent.
+                "SELECT label, CASE WHEN COUNT(DISTINCT runs_root) = 1 THEN MIN(runs_root) "
+                "ELSE rtrim(rtrim(MIN(runs_root), replace(MIN(runs_root), '/', '')), '/') END AS runs_root, "
+                "COUNT(*) AS decks, SUM(masked) AS masked, MAX(imported_at) AS imported_at "
+                "FROM v4_rewards GROUP BY label ORDER BY MAX(imported_at) DESC"
             ).fetchall()
         return [dict(row) for row in rows]
 

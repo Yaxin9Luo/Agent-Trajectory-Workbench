@@ -282,5 +282,59 @@ class V4RewardTest(unittest.TestCase):
             self.service.import_v4_reward(str(self.base), "v1", str(self.runs))
 
 
+class RlRunTest(unittest.TestCase):
+    """An RL run scores every rollout on its own: two rollouts of one task must each
+    show their own reward, and a rollout whose scoring timed out shows none."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name).resolve()
+        self.service = WorkbenchService(Store(self.base / "index.db"), analyzer=NoJev(), reviewer="tester")
+        self.run = self.base / "run"
+        for episode, reward in (("g144_i1152_a1", {"R": 0.8, "tier": 4}), ("g144_i1153_a1", {"R": 0.1, "tier": 1}),
+                                ("g144_i1154_a1", None), ("g0_i0_a1", {"R": 0.3, "tier": 2})):
+            trial = make_trial(self.run / "episodes" / episode / "harbor" / "job" / "id" / "task-x__1", "task-x")
+            if reward:
+                write_json(trial / "verifier" / "work" / "reward.json", {"artifact_id": "task-x", "ledger": [], **reward})
+
+    def tearDown(self) -> None:
+        self.service.store.close()
+        self.temp.cleanup()
+
+    def test_each_rollout_of_a_step_gets_its_own_reward(self) -> None:
+        report = self.service.import_rl_run(str(self.run), "rl-step9", [9])
+        # Each fixture trial holds a main trajectory and one subagent.
+        self.assertEqual((report["trajectories"], report["rewards"], report["matched_rewards"]), (6, 2, 2))
+        self.assertEqual([error["task_id"] for error in report["errors"]], ["g144_i1154_a1"])
+        rows = self.service.list_trajectories(collection="rl-step9")["items"]
+        by_episode = {row["path"].split("/episodes/")[1].split("/")[0]: row for row in rows}
+        self.assertEqual({name: row["v4_tier"] for name, row in by_episode.items()},
+                         {"g144_i1152_a1": 4, "g144_i1153_a1": 1, "g144_i1154_a1": None})
+        # Importing the step again replaces its rewards instead of adding to them.
+        again = self.service.import_rl_run(str(self.run), "rl-step9", [9])
+        self.assertEqual((again["replaced_rewards"], again["rewards"]), (2, 2))
+
+    def test_an_index_with_the_old_reward_key_is_migrated(self) -> None:
+        import sqlite3
+        path = self.base / "old.db"
+        db = sqlite3.connect(path)
+        db.execute(
+            "CREATE TABLE v4_rewards (label TEXT NOT NULL, task_id TEXT NOT NULL, runs_root TEXT NOT NULL, work_dir TEXT NOT NULL, "
+            "reward_path TEXT NOT NULL, r_value REAL, masked INTEGER NOT NULL DEFAULT 0, tier INTEGER, tier_name TEXT, seconds REAL, "
+            "has_errors INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL, imported_at TEXT NOT NULL, PRIMARY KEY (label, task_id))"
+        )
+        db.execute("INSERT INTO v4_rewards VALUES ('v1', 'deck-a', '/runs', '/w', '/w/reward.json', 0.5, 0, 2, 'x', 1, 0, '{\"R\": 0.5}', 't')")
+        db.commit()
+        db.close()
+        store = Store(path)
+        self.addCleanup(store.close)
+        self.assertEqual(store.v4_reward("v1", "deck-a"), {"R": 0.5})
+        row = {"task_id": "deck-a", "work_dir": "/w", "reward_path": "/w/reward.json", "R": 0.1}
+        store.replace_v4_rewards("rl", [{**row, "runs_root": "/run/episodes/a"}, {**row, "runs_root": "/run/episodes/b"}])
+        labels = {item["label"]: item for item in store.v4_labels()}
+        self.assertEqual((labels["rl"]["decks"], labels["rl"]["runs_root"]), (2, "/run/episodes"))
+        self.assertEqual(labels["v1"]["runs_root"], "/runs")
+
+
 if __name__ == "__main__":
     unittest.main()

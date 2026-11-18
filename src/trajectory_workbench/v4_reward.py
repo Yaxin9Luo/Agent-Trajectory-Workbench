@@ -9,6 +9,7 @@ and source-path prefix (see `store.V4_MATCH`); nothing here touches trajectory r
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -47,8 +48,8 @@ def stills(work_dir: Path, task_id: str) -> dict[str, list[str]]:
     return found
 
 
-def read_deck(work_dir: Path, runs_root: str) -> dict[str, Any]:
-    task_id = work_dir.name
+def read_deck(work_dir: Path, runs_root: str, task_id: str | None = None) -> dict[str, Any]:
+    task_id = task_id or work_dir.name
     reward_path = work_dir / "reward.json"
     reward = json.loads(reward_path.read_text(encoding="utf-8"))
     if not isinstance(reward, dict):
@@ -100,6 +101,57 @@ def read_root(root: Path, runs_root: str) -> tuple[list[dict[str, Any]], list[di
             errors.append({"task_id": row["task_id"], "error": f"artifact_id is {row['artifact_id']!r}; matched by directory name"})
         rows.append(row)
     return rows, errors
+
+
+EPISODE = re.compile(r"g(\d+)_i(\d+)_a(\d+)$")
+GROUPS_PER_STEP = 16
+
+
+def read_rl_run(run_root: Path, steps: set[int] | None = None) -> tuple[list[dict[str, Any]], list[Path], list[dict[str, str]]]:
+    """Read an RL run's `episodes/g<group>_i<index>_a<attempt>/` directories.
+
+    Each episode is one rollout and is scored on its own, in the sandbox: its reward is
+    `harbor/<job>/<id>/<trial>/verifier/work/reward.json`, and the Harbor trial directory
+    next to it holds the trajectory. Step k of the run is groups 16k .. 16k+15. Returns
+    the reward rows (each with `runs_root` = its episode directory, so several rollouts of
+    one task each match their own reward), the trial directories, and the episodes that
+    have no reward (scoring timed out or was dropped).
+    """
+    episodes = run_root / "episodes"
+    if not episodes.is_dir():
+        raise ValueError(f"No episodes/ directory under {run_root}")
+    rows: list[dict[str, Any]] = []
+    trials: list[Path] = []
+    errors: list[dict[str, str]] = []
+    for episode in sorted(episodes.iterdir()):
+        match = EPISODE.match(episode.name)
+        if not match or not episode.is_dir():
+            continue
+        step = int(match.group(1)) // GROUPS_PER_STEP
+        if steps is not None and step not in steps:
+            continue
+        found = sorted(episode.glob("harbor/*/*/*/agent/trajectory.json"))
+        if not found:
+            errors.append({"task_id": episode.name, "error": "no trajectory"})
+            continue
+        trial = found[-1].parent.parent
+        trials.append(trial)
+        work_dir = trial / "verifier" / "work"
+        if not (work_dir / "reward.json").is_file():
+            errors.append({"task_id": episode.name, "error": "no reward.json (not scored)"})
+            continue
+        try:
+            reward = json.loads((work_dir / "reward.json").read_text(encoding="utf-8"))
+            task_id = reward.get("artifact_id") or reward.get("brief") if isinstance(reward, dict) else None
+            if not task_id:
+                raise ValueError("reward.json names no artifact_id")
+            row = read_deck(work_dir, str(episode), str(task_id))
+        except (OSError, ValueError) as error:
+            errors.append({"task_id": episode.name, "error": str(error)[:300]})
+            continue
+        row.update(episode=episode.name, rl_step=step, attempt=int(match.group(3)))
+        rows.append(row)
+    return rows, trials, errors
 
 
 DONE_TIER = 4

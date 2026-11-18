@@ -42,6 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
     v4.add_argument("root", help="scoring work root containing work/<task>/reward.json")
     v4.add_argument("--label", required=True, help="name for this reward import; re-importing a label replaces it")
     v4.add_argument("--runs-root", required=True, help="source-path prefix of the scored trajectories")
+    rl = commands.add_parser(
+        "import-rl-run",
+        help="index an RL run's rollouts (RUN/episodes/g*_i*_a*) and each rollout's own sandbox reward",
+    )
+    rl.add_argument("run", help="RL run directory containing episodes/")
+    rl.add_argument("--collection", required=True, help="collection name; also the label of its rewards")
+    rl.add_argument("--steps", help="comma-separated training steps to index, e.g. 9 or 7,8,9 (default: all); step k is groups 16k..16k+15")
     commands.add_parser("list", help="list collections")
     remove = commands.add_parser(
         "remove-collection",
@@ -100,6 +107,13 @@ def main() -> None:
         print(file=sys.stderr)
     elif args.command == "import-v4-reward":
         result = service.import_v4_reward(str(Path(args.root).expanduser().resolve()), args.label, args.runs_root)
+    elif args.command == "import-rl-run":
+        def progress(done=None, message=None, **_):
+            print(f"\r[{done}] {(message or '')[:80]:<80}", end="", file=sys.stderr, flush=True)
+
+        steps = [int(part) for part in args.steps.split(",") if part.strip()] if args.steps else None
+        result = service.import_rl_run(str(Path(args.run).expanduser().resolve()), args.collection, steps, progress)
+        print(file=sys.stderr)
     elif args.command == "analyze":
         rows = service.batch_rows(args.collection, args.limit)
 
