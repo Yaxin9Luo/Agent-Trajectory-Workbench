@@ -110,9 +110,11 @@ GROUPS_PER_STEP = 16
 def read_rl_run(run_root: Path, steps: set[int] | None = None) -> tuple[list[dict[str, Any]], list[Path], list[dict[str, str]]]:
     """Read an RL run's `episodes/g<group>_i<index>_a<attempt>/` directories.
 
-    Each episode is one rollout and is scored on its own, in the sandbox: its reward is
-    `harbor/<job>/<id>/<trial>/verifier/work/reward.json`, and the Harbor trial directory
-    next to it holds the trajectory. Step k of the run is groups 16k .. 16k+15. Returns
+    Each episode is one rollout and is scored on its own: in the sandbox, which leaves
+    `harbor/<job>/<id>/<trial>/verifier/work/reward.json`, or (older runs and steps) by a
+    reward worker outside it, which leaves `reward_work/reward.json` in the episode. The
+    Harbor trial directory holds the trajectory, and its `result.json` names the task: the
+    worker's `artifact_id` is the session, not the task. Step k of the run is groups 16k .. 16k+15. Returns
     the reward rows (each with `runs_root` = its episode directory, so several rollouts of
     one task each match their own reward), the trial directories, and the episodes that
     have no reward (scoring timed out or was dropped).
@@ -136,15 +138,21 @@ def read_rl_run(run_root: Path, steps: set[int] | None = None) -> tuple[list[dic
             continue
         trial = found[-1].parent.parent
         trials.append(trial)
-        work_dir = trial / "verifier" / "work"
-        if not (work_dir / "reward.json").is_file():
+        work_dir = next((path for path in (trial / "verifier" / "work", episode / "reward_work") if (path / "reward.json").is_file()), None)
+        if work_dir is None:
             errors.append({"task_id": episode.name, "error": "no reward.json (not scored)"})
             continue
         try:
             reward = json.loads((work_dir / "reward.json").read_text(encoding="utf-8"))
-            task_id = reward.get("artifact_id") or reward.get("brief") if isinstance(reward, dict) else None
+            try:
+                result = json.loads((trial / "result.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                result = None
+            task_id = (result.get("task_name") if isinstance(result, dict) else None) or (
+                reward.get("artifact_id") or reward.get("brief") if isinstance(reward, dict) else None
+            )
             if not task_id:
-                raise ValueError("reward.json names no artifact_id")
+                raise ValueError("neither result.json nor reward.json names the task")
             row = read_deck(work_dir, str(episode), str(task_id))
         except (OSError, ValueError) as error:
             errors.append({"task_id": episode.name, "error": str(error)[:300]})

@@ -294,7 +294,11 @@ class RlRunTest(unittest.TestCase):
         for episode, reward in (("g144_i1152_a1", {"R": 0.8, "tier": 4}), ("g144_i1153_a1", {"R": 0.1, "tier": 1}),
                                 ("g144_i1154_a1", None), ("g0_i0_a1", {"R": 0.3, "tier": 2})):
             trial = make_trial(self.run / "episodes" / episode / "harbor" / "job" / "id" / "task-x__1", "task-x")
-            if reward:
+            # Step 0 was scored outside the sandbox: the reward sits in the episode and
+            # names the session, not the task.
+            if reward and episode.startswith("g0_"):
+                write_json(self.run / "episodes" / episode / "reward_work" / "reward.json", {"artifact_id": "slides-session", "ledger": [], **reward})
+            elif reward:
                 write_json(trial / "verifier" / "work" / "reward.json", {"artifact_id": "task-x", "ledger": [], **reward})
 
     def tearDown(self) -> None:
@@ -313,6 +317,11 @@ class RlRunTest(unittest.TestCase):
         # Importing the step again replaces its rewards instead of adding to them.
         again = self.service.import_rl_run(str(self.run), "rl-step9", [9])
         self.assertEqual((again["replaced_rewards"], again["rewards"]), (2, 2))
+
+    def test_a_reward_scored_outside_the_sandbox_is_matched_by_the_trial_task(self) -> None:
+        report = self.service.import_rl_run(str(self.run), "rl-step0", [0])
+        self.assertEqual((report["rewards"], report["matched_rewards"]), (1, 1))
+        self.assertEqual({row["v4_tier"] for row in self.service.list_trajectories(collection="rl-step0")["items"]}, {2})
 
     def test_an_index_with_the_old_reward_key_is_migrated(self) -> None:
         import sqlite3
