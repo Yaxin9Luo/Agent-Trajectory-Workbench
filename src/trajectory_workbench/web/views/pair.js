@@ -9,7 +9,10 @@ import {
   outcomeTone,
   percent,
   railCells,
+  tierClass,
+  tierText,
 } from "../presentation.mjs";
+import { deckFrame } from "./replay.js";
 import { t, tb } from "../i18n.mjs";
 
 /** Compare landing page: what is selected, and how to pick. */
@@ -69,6 +72,21 @@ export async function renderPair(root, leftId, rightId, ctx, still) {
   ]);
   if (!still()) return;
   const hide = (run) => ctx.blind && !run.review?.predicted_status;
+  const decks = h("section", { class: "panel compare-card pair-decks" });
+  const sides = [[left, t("左")], [right, t("右")]];
+  Promise.all(sides.map(([run]) => api.artifacts(run.id).catch(() => null))).then((built) => {
+    if (!still()) return;
+    const frames = sides.map(([run, side], index) => {
+      const entry = built[index]?.files.find((item) => item.path === built[index].main);
+      const label = side + " · " + rolloutName(run) + (hide(run) || !run.v4_reward ? "" : " · " + tierText(run.v4_reward));
+      if (!entry || !/\.html?$/i.test(entry.path)) return h("div", { class: "replay-frame" }, h("div", { class: "replay-frame-label" }, label), empty(t("没有可回放的交付物")));
+      const url = api.artifactUrl(run.id, entry.path, entry.versions[entry.versions.length - 1].n);
+      const box = deckFrame(url, label);
+      box.append(h("a", { class: "link-button replay-mark", href: url, target: "_blank", rel: "noopener noreferrer" }, t("新标签打开")));
+      return box;
+    });
+    clear(decks, h("h2", { class: "mini-title" }, t("两边做出来的幻灯片（最后一版，可在框内翻页）")), h("div", { class: "replay-frames two" }, frames));
+  });
   const divergence = firstDivergence(leftMessages.items, rightMessages.items);
 
   const header = h(
@@ -99,7 +117,7 @@ export async function renderPair(root, leftId, rightId, ctx, still) {
     column(left, leftMessages, ctx, hide(left), divergence?.left),
     column(right, rightMessages, ctx, hide(right), divergence?.right)
   );
-  clear(root, header, summary, divergenceBar, columns);
+  clear(root, header, summary, decks, divergenceBar, columns);
 
   function jumpBoth(point) {
     [[leftId, point.left], [rightId, point.right]].forEach(([id, step]) =>
@@ -124,8 +142,23 @@ function summaryTable(left, right, hide) {
     ["tokens", (run) => run.metrics.total_tokens, "low", formatCount],
     [t("费用"), (run) => run.metrics.total_cost_usd, "low", (value) => (value == null ? "—" : "$" + Number(value).toFixed(2))],
   ];
+  const reward = (run) => (hide(run) ? null : run.v4_reward);
+  const rewardCell = (run) =>
+    hide(run) ? t("隐藏") : run.v4_reward ? h("span", { class: "chip v4-badge " + tierClass(run.v4_reward) }, tierText(run.v4_reward)) : t("未打分");
+  const r = (run) => (reward(run) && !reward(run).masked ? reward(run).R : null);
+  const higher = r(left) != null && r(right) != null && r(left) !== r(right) ? (r(left) > r(right) ? "a" : "b") : null;
+  const failedIds = (run) => new Set((reward(run)?.failed || []).map((item) => item.id));
+  const only = (mine, other) => [...mine].filter((id) => !other.has(id)).sort().join(t("、")) || "—";
+  const [failedLeft, failedRight] = [failedIds(left), failedIds(right)];
   const rows = [
-    [t("评分"), outcome(left), outcome(right)],
+    [t("哪一条"), rolloutName(left), rolloutName(right)],
+    ...(left.v4_reward || right.v4_reward
+      ? [
+          [t("奖励"), h("span", { class: higher === "a" ? "better" : "" }, rewardCell(left), higher === "a" ? " ▲ " + t("分高") : ""), h("span", { class: higher === "b" ? "better" : "" }, rewardCell(right), higher === "b" ? " ▲ " + t("分高") : "")],
+          [t("只在这一侧失败的检查项"), only(failedLeft, failedRight), only(failedRight, failedLeft)],
+          [t("两侧都失败的检查项"), [...failedLeft].filter((id) => failedRight.has(id)).sort().join(t("、")) || "—", ""],
+        ]
+      : [[t("评分"), outcome(left), outcome(right)]]),
     [t("模型 / 集合"), [left.meta?.model, left.collection].filter(Boolean).join(" · "), [right.meta?.model, right.collection].filter(Boolean).join(" · ")],
   ];
   const table = h("table", { class: "compare-table" }, h("tr", {}, h("th", {}, ""), h("th", {}, t("左")), h("th", {}, t("右"))));
@@ -214,13 +247,22 @@ function column(run, payload, ctx, hidden, divergeStep) {
       "div",
       { class: "pair-head" },
       h("span", { class: "dot " + (status ? outcomeTone(status) : "muted") }),
-      h("a", { href: "#/t/" + encodeURIComponent(run.id) }, h("strong", {}, status ? OUTCOME_LABELS[status] : t("评分隐藏"))),
+      h("a", { href: "#/t/" + encodeURIComponent(run.id) }, h("strong", {}, rolloutName(run))),
+      !hidden && run.v4_reward
+        ? h("span", { class: "chip v4-badge " + tierClass(run.v4_reward) }, tierText(run.v4_reward))
+        : h("strong", {}, status ? OUTCOME_LABELS[status] : t("评分隐藏")),
       h("span", {}, [run.meta?.model, run.collection, t("{n} 步", { n: run.step_index.length })].filter(Boolean).join(" · ")),
       h("div", { class: "chips" }, flags)
     ),
     rail,
     h("div", { class: "pair-steps" }, steps, payload.total > payload.items.length ? h("p", { class: "hint" }, t("只显示前 {n} 条，完整内容请单独打开", { n: payload.items.length })) : null)
   );
+}
+
+/** What tells two runs of one task apart: the rollout directory of an RL run, else the attempt or id. */
+function rolloutName(run) {
+  const episode = run.v4_reward?.episode || /\/episodes\/([^/]+)\//.exec(run.source_path || "")?.[1];
+  return episode || run.attempt_id || run.id;
 }
 
 function summarizeInput(input) {

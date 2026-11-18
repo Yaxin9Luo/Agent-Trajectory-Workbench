@@ -13,6 +13,26 @@ const SEEN = {
   slide: ["ok", t("之后看过这一页")],
 };
 
+/** A sandboxed 1920x1080 page, scaled to the width it is given. */
+export function deckFrame(src, label) {
+  const box = h("div", { class: "replay-frame" });
+  const inner = h("iframe", { sandbox: "allow-scripts", src, title: label, referrerpolicy: "no-referrer" });
+  box.append(h("div", { class: "replay-frame-label" }, label), h("div", { class: "replay-scale" }, inner));
+  // Scale the fixed-size page to the width it is given.
+  const fit = () => {
+    if (!box.clientWidth) return;
+    const scale = box.clientWidth / STAGE.width;
+    inner.style.transform = "scale(" + scale + ")";
+    box.querySelector(".replay-scale").style.height = STAGE.height * scale + "px";
+  };
+  new ResizeObserver(fit).observe(box);
+  // The observer reports the first size once the frame is laid out; these cover a panel
+  // that is rendered while its tab is in the background.
+  inner.addEventListener("load", fit);
+  setTimeout(fit, 0);
+  return box;
+}
+
 /**
  * What the run built, step by step: the replayed versions of its deliverable rendered in a
  * sandboxed frame, a lane on the step bar for the design behaviours, and for a failed reward
@@ -103,24 +123,7 @@ export function createReplay({ trajectoryId, jump, onLoaded }) {
     return h("p", { class: "replay-facts" }, h("span", {}, facts.join(" · ")), tail);
   }
 
-  function frame(src, label) {
-    const box = h("div", { class: "replay-frame" });
-    const inner = h("iframe", { sandbox: "allow-scripts", src, title: label, referrerpolicy: "no-referrer" });
-    box.append(h("div", { class: "replay-frame-label" }, label), h("div", { class: "replay-scale" }, inner));
-    // Scale the fixed-size page to the width it is given.
-    const fit = () => {
-      if (!box.clientWidth) return;
-      const scale = box.clientWidth / STAGE.width;
-      inner.style.transform = "scale(" + scale + ")";
-      box.querySelector(".replay-scale").style.height = STAGE.height * scale + "px";
-    };
-    new ResizeObserver(fit).observe(box);
-    // The observer reports the first size once the frame is laid out; these cover a panel
-    // that is rendered while its tab is in the background.
-    inner.addEventListener("load", fit);
-    setTimeout(fit, 0);
-    return box;
-  }
+  const frame = deckFrame;
 
   function stage(entry, version) {
     const url = (n) => api.artifactUrl(trajectoryId, entry.path, n);
